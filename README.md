@@ -11,7 +11,7 @@
 
 <h3>Trabajo de grado</h3>
 
-<h3><b>Director:<b><br>
+<h3>Director:<br>
 Pedro Fabián Cárdenas Herrera<br>
 Profesor de tiempo completo - Departamento de Ingeniería Mecánica y Mecatrónica<br>
 Facultad de Ingeniería<br>
@@ -22,6 +22,36 @@ Automatización y Robótica</h3>
 
 ---
 
-Implementación de determinación de trayectorias seguras en entrono de robotica colaborativa supervisada. Proyecto de grado de maestria. Juan Sebastian Daleman
+Implementación de determinación de trayectorias seguras en entrono de robótica colaborativa supervisada. Proyecto de grado de maestría. Juan Sebastian Daleman
 
 ---
+
+<div id="programming_lenguages" align="center">
+<!--
+Para generar las medallas 
+https://shields.io/badges/static-badge
+Iconos para las medallas disponibles
+https://simpleicons.org/?q=HTML
+Para colores en HEX
+https://htmlcolorcodes.com/es/
+Algunos diseños ya realizados de medallas
+https://github.com/alexandresanlim/Badges4-README.md-Profile#-contact-
+-->
+<img src="https://img.shields.io/badge/Ubuntu%2024.04%20LST-E95420?logo=ubuntu&logoColor=FFFFFF" alt="Python Badge" height="28px">
+<img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=FFD43B" alt="Python Badge" height="28px">
+<img src="https://img.shields.io/badge/ROS%202%20JAZZY-22314E?logo=ros&logoColor=FFFFFF" alt="ROS 2 Badge"  height="28px">
+<img src="https://img.shields.io/badge/IRB%20140-FF000F?logo=ABB&logoColor=FFFFFF" alt="ABB Badge"  height="28px">
+<img src="https://img.shields.io/badge/REALSENSE%20D435i-0071C5?logo=intel&logoColor=white" alt="LaTeX Badge"  height="28px">
+<img src="https://img.shields.io/badge/LaTeX-008000?logo=latex&logoColor=white" alt="LaTeX Badge"  height="28px">
+</div>
+
+
+---
+
+<h2>Tabla de contendio</h2>
+
+- [Requisitos](#requisitos)
+
+
+
+## Requisitos
