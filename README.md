@@ -51,7 +51,24 @@ https://github.com/alexandresanlim/Badges4-README.md-Profile#-contact-
 <h2>Tabla de contendio</h2>
 
 - [Requisitos](#requisitos)
+- [Resumen de archivos](#resumen-de-archivos)
 
 
 
 ## Requisitos
+<details>
+    <summary>Tabla de contenido</summary>
+
+<!-- TOC -->
+- [Requisitos](#requisitos)
+- [Resumen de archivos](#resumen-de-archivos)
+</details>
+
+
+---
+
+## Resumen de archivos
+
+- 'instalar.sh': Instalación automática de programas utiliados.
+- 'configuracionWS.conf': Parámetros de configuración inicial del Work Space.
+- 'configuracionWS.sh': Configuración del Work Space inicial y de comandos para trabajo.
