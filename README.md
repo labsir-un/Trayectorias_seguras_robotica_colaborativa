@@ -59,6 +59,6 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 
 ## Resumen de archivos
 
-- 'instalar.sh': Instalación automática de programas utiliados.
-- 'configuracionWS.conf': Parámetros de configuración inicial del Work Space.
-- 'configuracionWS.sh': Configuración del Work Space inicial y de comandos para trabajo.
+- `instalar.sh`: Instalación automática de programas utiliados.
+- `configuracionWS.conf`: Parámetros de configuración inicial del Work Space.
+- `configuracionWS.sh`: Configuración del Work Space inicial y de comandos para trabajo.
