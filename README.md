@@ -22,10 +22,6 @@ Automatización y Robótica</h3>
 
 ---
 
-Implementación de determinación de trayectorias seguras en entrono de robótica colaborativa supervisada. Proyecto de grado de maestría. Juan Sebastian Daleman
-
----
-
 <div id="programming_lenguages" align="center">
 <!--
 Para generar las medallas 
@@ -45,25 +41,19 @@ https://github.com/alexandresanlim/Badges4-README.md-Profile#-contact-
 <img src="https://img.shields.io/badge/LaTeX-008000?logo=latex&logoColor=white" alt="LaTeX Badge"  height="28px">
 </div>
 
+---
+
+Implementación de determinación de trayectorias seguras en entrono de robótica colaborativa supervisada. Proyecto de grado de maestría. Juan Sebastian Daleman
 
 ---
 
-<h2>Tabla de contendio</h2>
 
-- [Requisitos](#requisitos)
-- [Resumen de archivos](#resumen-de-archivos)
-
-
-
-## Requisitos
 <details>
     <summary>Tabla de contenido</summary>
 
 <!-- TOC -->
-- [Requisitos](#requisitos)
 - [Resumen de archivos](#resumen-de-archivos)
 </details>
-
 
 ---
 
