@@ -174,6 +174,8 @@ else
     echo "El entorno de ROS 2 Jazzy ya estaba configurado en ~/.bashrc."
 fi
 
+cd $DIRECTORIO_ORIGEN
+
 cowsay -f tux "¡Instalación de herramientas completada con éxito!" | lolcat
 
 exec bash
