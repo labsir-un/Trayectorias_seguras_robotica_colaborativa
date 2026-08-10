@@ -254,6 +254,6 @@ AMENT_IGNORE
 # Ignore all local history of files
 .history
 .ionide
-
+settings.json
 
 # End of https://www.toptal.com/developers/gitignore/api/ros2,python,c++
