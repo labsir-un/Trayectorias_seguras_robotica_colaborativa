@@ -25,6 +25,18 @@ else
     echo "El work space de ROS 2 Jazzy ya estaba configurado en ~/.bashrc."
 fi
 
+#Agregar al archivo .bashrc el autocompeltado de colcon para que se cargue automáticamente al iniciar la terminal
+WS_SETUP_LINE="source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash"
+
+# Verificar si la línea ya existe en el .bashrc para no duplicarla
+if ! grep -Fq "$WS_SETUP_LINE" ~/.bashrc; then
+    echo "Agregando el autocompletado de colcon a ~/.bashrc..."
+    echo "$WS_SETUP_LINE" >> ~/.bashrc
+    echo "¡Configuración agregada con éxito!"
+else
+    echo "El autocompletado de colcon ya estaba configurado en ~/.bashrc."
+fi
+
 # Agregar alias para cargar cambios en el work space
 ALIAS_LINE='alias source_ws="source ./install/setup.bash"'
 # Verificar si la línea ya existe en el .bashrc para no duplicarla
