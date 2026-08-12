@@ -174,6 +174,10 @@ else
     echo "El entorno de ROS 2 Jazzy ya estaba configurado en ~/.bashrc."
 fi
 
+
+#Instalación de dependencias para RealSense
+instalar_si_falta_apt ros-$ROS_DISTRO-realsense2-*
+
 cd $DIRECTORIO_ORIGEN
 
 cowsay -f tux "¡Instalación de herramientas completada con éxito!" | lolcat

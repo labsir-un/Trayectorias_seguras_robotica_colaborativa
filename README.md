@@ -53,6 +53,7 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 
 <!-- TOC -->
 - [Resumen de archivos](#resumen-de-archivos)
+- [Configuración para WLS](#configuración-para-wls)
 </details>
 
 ---
@@ -62,3 +63,18 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - `instalar.sh`: Instalación automática de programas utiliados.
 - `configuracionWS.conf`: Parámetros de configuración inicial del Work Space.
 - `configuracionWS.sh`: Configuración del Work Space inicial y de comandos para trabajo.
+
+## Configuración para WLS
+
+En PowerShell como Administrador
+
+```sh
+#Instalar  USBIPD
+winget install --interactive --exact dorssel.usbipd-win
+#Ver el BUSID de las camaras
+usbipd list
+#Compartirlos con el WLS
+usbipd bind --busid <BUSID>
+#Conectar el dispositvo con WLS
+usbipd attach --wsl --busid <BUSID>
+```

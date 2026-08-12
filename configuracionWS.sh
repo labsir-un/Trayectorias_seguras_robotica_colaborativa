@@ -99,10 +99,36 @@ else
     echo "La función ros2_create_cpp_pkg ya se encuentra configurada en ~/.bashrc."
 fi
 
+cd $DIRECTORIO_ORIGENDIRECTORIO_CODIGO_FUENTE
+git clone https://github.com/realsenseai/realsense-ros.git -b ros2-master
+
+cd $WS_TRABAJO
+
+sudo apt-get install python3-rosdep -y
+sudo rosdep init # "sudo rosdep init --include-eol-distros" for Foxy and earlier
+rosdep update # "sudo rosdep update --include-eol-distros" for Foxy and earlier
+rosdep install -i --from-path src --rosdistro $ROS_DISTRO --skip-keys=librealsense2 -y
+
+colcon build
+
+#Agregar al archivo .bashrc la configuración de  ROS 2 Jazzy para que se cargue automáticamente al iniciar la terminal
+WS_SETUP_LINE="source /opt/ros/$ROS_DISTRO/setup.bash"
+
+# Verificar si la línea ya existe en el .bashrc para no duplicarla
+if ! grep -Fq "$WS_SETUP_LINE" ~/.bashrc; then
+    echo "Agregando la configuración de ROS 2 a ~/.bashrc..."
+    echo "$WS_SETUP_LINE" >> ~/.bashrc
+    echo "¡Configuración agregada con éxito!"
+else
+    echo "La configuración de ROS 2 ya estaba configurada en ~/.bashrc."
+fi
+
 # Intentar recargar el bashrc en la sesión actual
 source ~/.bashrc 2>/dev/null || true
 
 cowsay -f tux "¡Configuración completada con éxito!" | lolcat
+
+cd $DIRECTORIO_ORIGEN
 
 # Aplica los cambios del alias inmediatamente en la terminal actual
 exec bash
