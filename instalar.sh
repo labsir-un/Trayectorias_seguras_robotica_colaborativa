@@ -1,194 +1,127 @@
 #!/bin/bash
+set -euo pipefail
 
-# Intalación de herramientas necesarias
+# Obtener directorio del script y cargar configuración
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/configuracionWS.conf"
 
-# Definición de la función de instalación segura por APT
-instalar_si_falta_apt() {
-    # Guardar el nombre del paquete pasado como primer argumento
-    local PAQUETE="$1"
+echo "=== [1/4] Actualizando índices del sistema ==="
+sudo apt-get update -y
 
+# Helpers de instalación
+instalar_apt() {
+    local pkg="$1"
     # Validar que no se haya enviado un argumento vacío
-    if [ -z "$PAQUETE" ]; then
+    if [ -z "$pkg" ]; then
         echo "Error interno de script: No se especificó un paquete para validar."
         return 1
     fi
-
-    echo "Verificando si $PAQUETE ya está instalado..."
-
-    # Verificar el estado del paquete en la base de datos de dpkg
-    if dpkg-query -W -f='${Status}' "$PAQUETE" 2>/dev/null | grep -q "ok installed"; then
-        echo "¡$PAQUETE ya está instalado! Saltando este paso."
+    if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
+        echo "[APT] $pkg ya está instalado."
     else
-        echo "$PAQUETE no está instalado. Iniciando la instalación..."
-        # Actualizar los índices e instalar de forma desatendida (-y)
-        sudo apt update && sudo apt install -y "$PAQUETE"
+        echo "[APT] Instalando $pkg..."
+        sudo apt-get install -y "$pkg"
     fi
 }
 
-# Función general para instalar paquetes mediante Snap
-instalar_si_falta_snap() {
-    local PAQUETE="$1"
-    local MODO="$2" # Puede ser "classic" o dejarse vacío
-
+instalar_snap() {
+    local pkg="$1"
+    local modo="${2:-}"
     # Validar que se haya enviado el nombre del paquete
-    if [ -z "$PAQUETE" ]; then
+    if [ -z "$pkg" ]; then
         echo "Error interno de script: No se especificó un paquete Snap."
         return 1
     fi
-
-    echo "Verificando si el paquete snap '$PAQUETE' ya está instalado..."
-
-    # snap list verifica si el paquete está registrado en el sistema
-    if snap list "$PAQUETE" >/dev/null 2>&1; then
-        echo "¡El snap '$PAQUETE' ya está instalado! Saltando este paso."
+    if snap list "$pkg" &>/dev/null; then
+        echo "[SNAP] $pkg ya está instalado."
     else
-        echo "El snap '$PAQUETE' no está instalado. Iniciando instalación..."
-        
-        # Evaluar si requiere el parámetro --classic
-        if [ "$MODO" = "classic" ]; then
-            sudo apt update
-            sudo snap install "$PAQUETE" --classic
+        echo "[SNAP] Instalando $pkg..."
+        if [ "$modo" = "--classic" ]; then
+            sudo snap install "$pkg" --classic
         else
-            sudo apt update
-            sudo snap install "$PAQUETE"
+            sudo snap install "$pkg"
         fi
-        echo "¡El snap '$PAQUETE' se instaló con éxito!"
     fi
 }
 
-#Cowsay
-instalar_si_falta_apt cowsay
+agregar_linea_bashrc() {
+    local linea="$1"
+    if ! grep -Fxq "$linea" "$ARCHIVO_BASHRC"; then
+        echo "Agregando línea al archivo $ARCHIVO_BASHRC: $linea"
+        echo "$linea" >> "$ARCHIVO_BASHRC"
+    else
+        echo "la línea $linea ya estaba configurado en ~/.bashrc."
+    fi
+}
 
-#lolcat
-instalar_si_falta_apt lolcat
 
+echo "=== [2/4] Instalando utilidades básicas ==="
+instalar_apt cowsay
+instalar_apt lolcat
+instalar_apt curl
+instalar_apt usbutils
+instalar_snap code --classic
 
-#Kitty terminal
-PAQUETE="kitty"
-
-echo "Verificando si $PAQUETE Terminal ya está instalado..."
-
-# Verificamos si la carpeta del ejecutable de Kitty ya existe en tu directorio local
-if [ -d "$HOME/.local/kitty.app" ]; then
-    echo "¡$PAQUETE ya está instalado en ~/.local/kitty.app/! Saltando la instalación."
-else
-    echo "$PAQUETE no se encuentra en el sistema. Iniciando proceso de instalación..."
-    
-    # Asegurar que el directorio local de binarios existe
-    mkdir -p ~/.local/bin/
-    mkdir -p ~/.local/share/applications/
-
-    # Descargar e instalar la versión estable oficial (puedes cambiar a 'installer=nightly' si lo prefieres)
+echo "=== [3/4] Instalando Kitty Terminal ==="
+if [ ! -d "$HOME/.local/kitty.app" ]; then
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.config"
     echo "Descargando instalador oficial de Kitty..."
     curl -L https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin
-
-    # Crear enlaces simbólicos para ejecutar 'kitty' y 'kitten' desde cualquier lugar
     echo "Creando accesos directos en ~/.local/bin/..."
-    ln -sf ~/.local/kitty.app/bin/kitty ~/.local/kitty.app/bin/kitten ~/.local/bin/
-
-    # Copiar el archivo de integración de escritorio (.desktop) para que aparezca en tus aplicaciones
-    echo "Configurando acceso directo en el sistema de aplicaciones..."
-    cp ~/.local/kitty.app/share/applications/kitty.desktop ~/.local/share/applications/
-
-    # Corregir las rutas del icono y del ejecutable en el archivo .desktop (reemplaza 'kitty' por la ruta absoluta)
-    sed -i "s|Icon=kitty|Icon=$(readlink -f ~)/.local/kitty.app/share/icons/hicolor/256x256/apps/kitty.png|g" ~/.local/share/applications/kitty*.desktop
-    sed -i "s|Exec=kitty|Exec=$(readlink -f ~)/.local/kitty.app/bin/kitty|g" ~/.local/share/applications/kitty*.desktop
-
-    curl -L https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin \
-    installer=nightly
+    ln -sf "$HOME/.local/kitty.app/bin/kitty" "$HOME/.local/bin/kitty"
+    ln -sf "$HOME/.local/kitty.app/bin/kitten" "$HOME/.local/bin/kitten"
     
-    # Registrar Kitty como una opción de terminal válida en el entorno de escritorio
-    echo "Estableciendo Kitty en la lista de terminales XDG..."
-    echo 'kitty.desktop' > ~/.config/xdg-terminals.list
-
-    echo "¡Instalación y configuración de Kitty completada con éxito!"
+    echo "Configurando acceso directo en el sistema de aplicaciones..."
+    cp "$HOME/.local/kitty.app/share/applications/kitty.desktop" "$HOME/.local/share/applications/"
+    sed -i "s|Icon=kitty|Icon=$HOME/.local/kitty.app/share/icons/hicolor/256x256/apps/kitty.png|g" "$HOME/.local/share/applications/kitty*.desktop"
+    sed -i "s|Exec=kitty|Exec=$HOME/.local/kitty.app/bin/kitty|g" "$HOME/.local/share/applications/kitty*.desktop"
+    echo 'kitty.desktop' > "$HOME/.config/xdg-terminals.list"
+    echo "¡Instalaciónde Kitty completada con éxito!"
+else
+    echo "[KITTY] Ya se encuentra instalado."
 fi
 
-
-
-#Visual studio code
-instalar_si_falta_snap code --classic
-
-#ROS Jazzy
-PAQUETE="ros-jazzy-desktop"
-echo "Verificando si $PAQUETE ya está instalado..."
-
-# Comprobar si la salida de locale NO contiene la palabra UTF-8 (ignorando mayúsculas)
+echo "=== [4/4] Configurando ROS 2 ($ROS_DISTRO) ==="
+# Configuración UTF-8
 if ! locale | grep -q -i "UTF-8"; then
     echo "Configuración UTF-8 no detectada. Iniciando instalación y ajuste..."
-
-    # Actualizar repositorios e instalar el paquete de locales
-    sudo apt update && sudo apt install locales
-
-    # Generar la codificación en_US y en_US.UTF-8
-    sudo locale-gen en_US en_US.UTF-8
-
-    # Actualizar la configuración del sistema de forma permanente
+    sudo apt-get install -y locales
+    sudo locale-gen en_US.UTF-8
     sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
-
-    # Exportar la variable para la sesión actual de la terminal
     export LANG=en_US.UTF-8
-    
     echo "Configuración completada con éxito."
 else
     echo "El sistema ya cuenta con una configuración UTF-8 activa. No se requieren cambios."
 fi
 
-if [ -d "/opt/ros/jazzy" ]; then
-    echo "¡ROS 2 Jazzy ya está instalado en '/opt/ros/jazzy'! Saltando instalación..."
-
-else
+if [ ! -d "/opt/ros/$ROS_DISTRO" ]; then
     echo "ROS 2 Jazzy no detectado. Iniciando el proceso de instalación..."
-
-    #Verificar que los repositorios necesarios esten habilitados
-    sudo apt install software-properties-common
-    sudo add-apt-repository universe
-
+    sudo apt-get install -y software-properties-common
+    sudo add-apt-repository universe -y
+    
     sudo apt update && sudo apt install curl -y
-    export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F'"' '{print $4}')
-    curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb"
-
+    ROS_APT_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | cut -d'"' -f4)
+    UBUNTU_CODENAME=$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME}}")
+    curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_VERSION}/ros2-apt-source_${ROS_APT_VERSION}.${UBUNTU_CODENAME}_all.deb"
+    
     sudo dpkg -i /tmp/ros2-apt-source.deb
-
-    #Intalar herramientas de desarrollo de ROS
-    sudo apt update && sudo apt install ros-dev-tools
-
-    #Iniciar intalación de ROS 2 Jazzy
-    sudo apt update && sudo apt upgrade
-    #Version de escritorio de ROS 2 Jazzy
-    sudo apt install ros-jazzy-desktop
+    sudo apt-get update -y
+    sudo apt-get install -y ros-dev-tools "ros-$ROS_DISTRO-desktop" python3-rosdep
     sudo apt update && sudo apt upgrade
     sudo apt autoremove
-    
-fi
-
-#Configurar ambiente de ROS 2 Jazzy para que se cargue automáticamente al iniciar la terminal
-ROS_SETUP_LINE="source /opt/ros/jazzy/setup.bash"
-
-# Verificar si la línea ya existe en el .bashrc para no duplicarla
-if ! grep -Fq "$ROS_SETUP_LINE" ~/.bashrc; then
-    echo "Agregando el entorno de ROS 2 Jazzy a ~/.bashrc..."
-    echo "$ROS_SETUP_LINE" >> ~/.bashrc
-    echo "¡Configuración agregada con éxito!"
 else
-    echo "El entorno de ROS 2 Jazzy ya estaba configurado en ~/.bashrc."
+    echo "¡ROS 2 Jazzy ya está instalado en '/opt/ros/$ROS_DISTRO'! Saltando instalación..."
 fi
 
+agregar_linea_bashrc "source /opt/ros/jazzy/setup.bash"
 
-#Instalación de dependencias para RealSense
-instalar_si_falta_apt ros-$ROS_DISTRO-realsense2-*
-
-#Intalacion de usbutils para poder usar el comando lsusb y verificar que la cámara RealSense esté conectada
-instalar_si_falta_apt usbutils
-
-#moveit2
-instalar_si_falta_apt ros-jazzy-moveit
-
-#Instalación de rmw_cyclonedds_cpp para ROS 2 Jazzy
-instalar_si_falta_apt ros-$ROS_DISTRO-rmw-cyclonedds-cpp
+# Dependencias ROS adicionales
+instalar_apt "ros-$ROS_DISTRO-realsense2-camera"
+instalar_apt "ros-$ROS_DISTRO-moveit"
+instalar_apt "ros-$ROS_DISTRO-rmw-cyclonedds-cpp"
 
 cd $DIRECTORIO_ORIGEN
 
-cowsay -f tux "¡Instalación de herramientas completada con éxito!" | lolcat
+cowsay -f tux "¡Instalación base completada!" | lolcat
 
 exec bash
