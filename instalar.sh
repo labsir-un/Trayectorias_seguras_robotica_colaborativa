@@ -178,6 +178,15 @@ fi
 #Instalación de dependencias para RealSense
 instalar_si_falta_apt ros-$ROS_DISTRO-realsense2-*
 
+#Intalacion de usbutils para poder usar el comando lsusb y verificar que la cámara RealSense esté conectada
+instalar_si_falta_apt usbutils
+
+#moveit2
+instalar_si_falta_apt ros-jazzy-moveit
+
+#Instalación de rmw_cyclonedds_cpp para ROS 2 Jazzy
+instalar_si_falta_apt ros-$ROS_DISTRO-rmw-cyclonedds-cpp
+
 cd $DIRECTORIO_ORIGEN
 
 cowsay -f tux "¡Instalación de herramientas completada con éxito!" | lolcat

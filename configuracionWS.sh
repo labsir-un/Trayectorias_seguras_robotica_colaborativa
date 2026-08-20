@@ -123,6 +123,47 @@ else
     echo "La configuración de ROS 2 ya estaba configurada en ~/.bashrc."
 fi
 
+#Configuración de kitty
+# 1. Definir la ruta del archivo de configuración
+CONFIG_FILE="$HOME/.config/kitty/kitty.conf"
+
+# 2. Crear el directorio si no existe
+mkdir -p "$(dirname "$CONFIG_FILE")"
+
+# 3. Descargar y aplicar el tema Catppuccin-Mocha
+kitty +kitten themes --reload-in=all Catppuccin-Mocha
+
+# 4. Eliminar configuraciones repetidas para evitar conflictos
+sed -i '/font_size/d' "$CONFIG_FILE"
+sed -i '/font_family/d' "$CONFIG_FILE"
+sed -i '/hide_window_decorations/d' "$CONFIG_FILE"
+sed -i '/tab_bar_min_tabs/d' "$CONFIG_FILE"
+sed -i '/tab_bar_edge/d' "$CONFIG_FILE"
+sed -i '/tab_bar_style/d' "$CONFIG_FILE"
+sed -i '/tab_powerline_style/d' "$CONFIG_FILE"
+sed -i '/tab_title_template/d' "$CONFIG_FILE"
+sed -i '/active_tab_title_template/d' "$CONFIG_FILE"
+
+# 5. Agregar tus nuevas configuraciones al archivo
+cat << 'EOF' >> "$CONFIG_FILE"
+
+# --- Configuraciones personalizadas por script ---
+font_size 16.0
+font_family JetBrainsMono Nerd Font
+hide_window_decorations no
+tab_bar_min_tabs 1
+tab_bar_edge bottom
+tab_bar_style powerline
+tab_powerline_style slanted
+tab_title_template "{index}:{title[:6]}…{title[-6:]} if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
+active_tab_title_template "{index}:{title[:6]}…{title[-6:]} if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
+EOF
+
+# 6. Forzar la recarga de la configuración en todas las instancias
+kill -SIGUSR1 $(pgrep kitty)
+
+echo "¡Configuración de Kitty actualizada con éxito!"
+
 # Intentar recargar el bashrc en la sesión actual
 source ~/.bashrc 2>/dev/null || true
 

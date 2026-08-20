@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'Cameras'
+package_name = 'colab_supervision_control'
 
 setup(
     name=package_name,

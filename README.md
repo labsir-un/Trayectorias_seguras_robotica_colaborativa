@@ -77,4 +77,4 @@ usbipd list
 usbipd bind --busid <BUSID>
 #Conectar el dispositvo con WLS
 usbipd attach --wsl --busid <BUSID>
-```
+``` 
