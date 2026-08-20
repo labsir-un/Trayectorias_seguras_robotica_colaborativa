@@ -100,7 +100,7 @@ if command -v kitty &>/dev/null; then
     # --- Configuraciones personalizadas ---
     font_size 16.0
     font_family JetBrainsMono Nerd Font
-    hide_window_decorations yes
+    hide_window_decorations no
     tab_bar_min_tabs 1
     tab_bar_edge bottom
     tab_bar_style powerline

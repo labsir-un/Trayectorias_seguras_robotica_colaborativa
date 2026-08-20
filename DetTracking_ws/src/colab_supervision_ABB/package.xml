@@ -3,9 +3,9 @@
 <package format="3">
   <name>colab_supervision_ABB</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>drive to control ABB IRB140 robot</description>
   <maintainer email="jdaleman@unal.edu.co">jsdaleman</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <depend>rclpy</depend>
 
