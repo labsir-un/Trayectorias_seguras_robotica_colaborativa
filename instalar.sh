@@ -106,7 +106,7 @@ if [ ! -d "/opt/ros/$ROS_DISTRO" ]; then
     
     sudo dpkg -i /tmp/ros2-apt-source.deb
     sudo apt-get update -y
-    sudo apt-get install -y ros-dev-tools "ros-$ROS_DISTRO-desktop" python3-rosdep
+    sudo apt-get install -y ros-dev-tools "ros-$ROS_DISTRO-desktop" python3-rosdep "ros-$ROS_DISTRO-urdf-tutorial"
     sudo apt update && sudo apt upgrade
     sudo apt autoremove
 else
