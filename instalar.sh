@@ -119,6 +119,9 @@ agregar_linea_bashrc "source /opt/ros/jazzy/setup.bash"
 instalar_apt "ros-$ROS_DISTRO-realsense2-camera"
 instalar_apt "ros-$ROS_DISTRO-moveit"
 instalar_apt "ros-$ROS_DISTRO-rmw-cyclonedds-cpp"
+instalar_apt "ros-$ROS_DISTRO-ros2-control"
+instalar_apt "ros-$ROS_DISTRO-ros2-controllers"
+instalar_apt "ros-$ROS_DISTRO-controller-manager"
 
 cd $DIRECTORIO_ORIGEN
 
