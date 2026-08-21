@@ -115,6 +115,8 @@ else
     echo "Kitty no está instalado. Saltando configuración de Kitty."
 fi
 
+agregar_linea_bashrc "export LIBGL_ALWAYS_SOFTWARE=1"
+
 source ~/.bashrc 2>/dev/null || true
 cd $DIRECTORIO_ORIGEN
 
