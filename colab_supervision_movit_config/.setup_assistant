@@ -1,0 +1,27 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: colab_supervision_description
+    relative_path: urdf/irb140.urdf.xacro
+  srdf:
+    relative_path: config/abb_irb140_cain.srdf
+  package_settings:
+    author_name: jsdaleman
+    author_email: jdaleman@unal.edu.co
+    generated_timestamp: 1787339053
+  control_xacro:
+    command:
+      - position
+      - velocity
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+      - velocity
+    state:
+      - position
+      - velocity
