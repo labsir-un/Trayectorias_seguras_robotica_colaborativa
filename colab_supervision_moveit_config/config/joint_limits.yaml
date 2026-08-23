@@ -10,31 +10,31 @@ default_acceleration_scaling_factor: 0.1
 joint_limits:
   joint1:
     has_velocity_limits: true
-    max_velocity: 3.4906
+    max_velocity: 3.4906000000000001
     has_acceleration_limits: true
     max_acceleration: 8.72665
   joint2:
     has_velocity_limits: true
-    max_velocity: 3.4906
+    max_velocity: 3.4906000000000001
     has_acceleration_limits: true
     max_acceleration: 8.72665
   joint3:
     has_velocity_limits: true
-    max_velocity: 4.5378
+    max_velocity: 4.5377999999999998
     has_acceleration_limits: true
     max_acceleration: 10.47198
   joint4:
     has_velocity_limits: true
-    max_velocity: 6.2831
+    max_velocity: 6.2831000000000001
     has_acceleration_limits: true
     max_acceleration: 15.70796
   joint5:
     has_velocity_limits: true
-    max_velocity: 6.2831
+    max_velocity: 6.2831000000000001
     has_acceleration_limits: true
     max_acceleration: 15.70796
   joint6:
     has_velocity_limits: true
-    max_velocity: 7.8539
+    max_velocity: 7.8539000000000003
     has_acceleration_limits: true
     max_acceleration: 20.94395

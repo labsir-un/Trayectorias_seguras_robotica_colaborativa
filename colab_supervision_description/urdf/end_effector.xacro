@@ -1,0 +1,27 @@
+<?xml version="1.0" ?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <link name="prototipe_jsdaleman">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 1.5707 0" />
+            <geometry>
+                <mesh filename="package://colab_supervision_description/meshes/visual/obj/HerramientaV2.obj" scale="1 1 1"/> 
+            </geometry>
+            <material name="clear_grey" />
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 1.5707 0" />
+            <geometry>
+                <mesh filename="package://colab_supervision_description/meshes/collision/HerramientaV2_collition.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="tcp_link"/>
+
+    <joint name="tcp_joint" type="fixed">
+        <parent link="prototipe_jsdaleman" />
+        <child link="tcp_link" />
+        <origin xyz="0.273 0 -0.118" rpy="0 2.35619 0" />
+    </joint>
+</robot>

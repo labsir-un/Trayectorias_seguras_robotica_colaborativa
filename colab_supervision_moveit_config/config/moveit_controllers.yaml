@@ -4,9 +4,9 @@ moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControll
 
 moveit_simple_controller_manager:
   controller_names:
-    - armirb140_controller
+    - arm_abb_irb_140_controller
 
-  armirb140_controller:
+  arm_abb_irb_140_controller:
     type: FollowJointTrajectory
     joints:
       - joint1

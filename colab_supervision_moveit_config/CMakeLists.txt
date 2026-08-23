@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(colab_supervision_movit_config)
+project(colab_supervision_moveit_config)
 
 find_package(ament_cmake REQUIRED)
 

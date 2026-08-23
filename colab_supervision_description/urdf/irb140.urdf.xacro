@@ -4,5 +4,11 @@
 
     <xacro:include filename="materials.xacro"/>
     <xacro:include filename="arm_description.xacro"/>
+    <xacro:include filename="end_effector.xacro"/>
 
+    <joint name="end_effector_joint" type="fixed">
+        <parent link="tool_link" />
+        <child link="prototipe_jsdaleman" />
+        <origin xyz="0 0 0" rpy="0 0 0" />
+    </joint>
 </robot>
