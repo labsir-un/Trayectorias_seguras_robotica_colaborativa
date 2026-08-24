@@ -5,6 +5,7 @@
     <xacro:include filename="materials.xacro"/>
     <xacro:include filename="arm_description.xacro"/>
     <xacro:include filename="end_effector.xacro"/>
+    <xacro:include filename="abb_irb140_cain.ros2_control.xacro"/>
 
     <joint name="end_effector_joint" type="fixed">
         <parent link="tool_link" />
