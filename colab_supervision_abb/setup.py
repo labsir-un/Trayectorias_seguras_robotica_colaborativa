@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'colab_supervision_ABB'
+package_name = 'colab_supervision_abb'
 
 setup(
     name=package_name,
