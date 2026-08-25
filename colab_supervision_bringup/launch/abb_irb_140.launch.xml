@@ -1,8 +1,10 @@
 <launch>
     <let name="urdf_path" 
         value="$(find-pkg-share colab_supervision_description)/urdf/irb140.urdf.xacro"/>
-    <let name="rviz_config_path" 
-        value="$(find-pkg-share colab_supervision_bringup)/config/abb_irb_140_moveit.rviz"/>
+    <!-- <let name="rviz_config_path" 
+        value="$(find-pkg-share colab_supervision_bringup)/config/abb_irb_140_moveit.rviz"/> -->
+    <let name="rviz_config_path"
+        value="$(find-pkg-share colab_supervision_description)/rviz/urdf_config.rviz" />
 
     <node pkg="robot_state_publisher" exec="robot_state_publisher">
         <param name="robot_description" 
@@ -17,6 +19,8 @@
     <node pkg="controller_manager" exec="spawner" args="arm_abb_irb_140_controller"/>
 
     <include file="$(find-pkg-share colab_supervision_moveit_config)/launch/move_group.launch.py"/>
+
+    <node pkg="colab_supervision_commander" exec="commander" />
 
     <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)"/>
 </launch>
