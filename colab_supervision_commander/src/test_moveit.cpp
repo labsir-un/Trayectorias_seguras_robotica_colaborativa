@@ -6,15 +6,14 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
 
     auto node = std::make_shared<rclcpp::Node>("test_moveit");
+
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(node);
     auto spinner = std::thread([&executor]() { executor.spin(); });
 
     auto irb140 = moveit::planning_interface::MoveGroupInterface(node, "arm_abb_irb_140");
-    // irb140.setEndEffectorLink("tcp_joint");
-    // RCLCPP_INFO(node->get_logger(), "TCP actual: %s", irb140.getEndEffectorLink().c_str());
-
-    // auto end_effector = moveit::planning_interface::MoveGroupInterface(node, "prototipe_jsdaleman");
+    irb140.setEndEffectorLink("tcp_link");
+    RCLCPP_INFO(node->get_logger(), "TCP actual: %s", irb140.getEndEffectorLink().c_str());
 
     irb140.setMaxVelocityScalingFactor(0.5);
     irb140.setMaxAccelerationScalingFactor(0.5);
@@ -22,7 +21,7 @@ int main(int argc, char **argv)
     // //Name goal
 
     // irb140.setStartStateToCurrentState();
-    // irb140.setNamedTarget("transition");
+    // irb140.setNamedTarget("maintenance");
 
     // moveit::planning_interface::MoveGroupInterface::Plan plan1;
     // bool success = (irb140.plan(plan1) == moveit::core::MoveItErrorCode::SUCCESS);
@@ -67,7 +66,7 @@ int main(int argc, char **argv)
     geometry_msgs::msg::PoseStamped target_pose;
     target_pose.header.frame_id = "base_link";
     target_pose.header.stamp = node->now();
-    target_pose.pose.position.x = 0;
+    target_pose.pose.position.x = 0.0;
     target_pose.pose.position.y = -0.7;
     target_pose.pose.position.z = 0.4;
     target_pose.pose.orientation.x = q.getX();

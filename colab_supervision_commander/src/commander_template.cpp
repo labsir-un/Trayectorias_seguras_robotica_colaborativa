@@ -17,19 +17,19 @@ class Commander
         {
             node_ = node;
             irb140_ = std::make_shared<MoveGroupInterface>(node_, "arm_abb_irb_140");
+            irb140_->setEndEffectorLink("tcp_link");
+            RCLCPP_INFO(node_->get_logger(), "TCP actual: %s", irb140_->getEndEffectorLink().c_str());
             irb140_->setMaxVelocityScalingFactor(0.5);
             irb140_->setMaxAccelerationScalingFactor(0.5);
 
-            end_effector_ = std::make_shared<MoveGroupInterface>(node_, "prototipe_jsdaleman");
+            named_target_sub_ = node_->create_subscription<NameCmd>(
+                "name_command", 10, std::bind(&Commander::nameCmdCallback, this, _1));
 
             joint_cmd_sub_ = node_->create_subscription<FloatArray>(
                 "joint_command", 10, std::bind(&Commander::jointCmdCallback, this, _1));
 
             pose_cmd_sub_ = node_->create_subscription<PoseCmd>(
                 "pose_command", 10, std::bind(&Commander::poseCmdCallback, this, _1));
-
-            named_target_sub_ = node_->create_subscription<NameCmd>(
-                "name_command", 10, std::bind(&Commander::nameCmdCallback, this, _1));
         }
 
         void goToNamedTarget(const std::string &name)
@@ -94,6 +94,11 @@ class Commander
             }
         }
 
+        void nameCmdCallback(const NameCmd &msg)
+        {
+            goToNamedTarget(msg.name);
+        }
+
         void jointCmdCallback(const FloatArray &msg)
         {
             auto joints = msg.data;
@@ -110,18 +115,12 @@ class Commander
                         msg.cartesian_path);
         }
 
-        void nameCmdCallback(const NameCmd &msg)
-        {
-            goToNamedTarget(msg.name);
-        }
-
         std::shared_ptr<rclcpp::Node> node_;
         std::shared_ptr<MoveGroupInterface> irb140_;
-        std::shared_ptr<MoveGroupInterface> end_effector_;
         
+        rclcpp::Subscription<NameCmd>::SharedPtr named_target_sub_;
         rclcpp::Subscription<FloatArray>::SharedPtr joint_cmd_sub_;
         rclcpp::Subscription<PoseCmd>::SharedPtr pose_cmd_sub_;
-        rclcpp::Subscription<NameCmd>::SharedPtr named_target_sub_;
 };
 
 int main(int argc, char **argv)
