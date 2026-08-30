@@ -60,6 +60,9 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - [Resumen de archivos](#resumen-de-archivos)
 - [Resumen de paquetes](#resumen-de-paquetes)
 - [Configuración para WLS](#configuración-para-wls)
+  - [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb)
+  - [Configuración para comunicación entre ROS-RobotStudio](#configuración-para-comunicación-entre-ros-robotstudio)
+- [Agradecimientos](#agradecimientos)
 </details>
 
 ---
@@ -78,10 +81,13 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - `colab_supervision_description`: Paquete de configuración de URDF del ABB IRB140.
 - `colab_supervision_interfaces`: Paquete para interfaces de comunicación entre nodos.
 - `realsense-ros`: ROS Wrapper para camaras RealSense.
+- `ros_industrial_abb_driver`: Paquete de ROS-industrial con modificaciones de [abb_ros2](https://github.com/PickNikRobotics/abb_ros2/tree/rolling) para comunicaciones con el controlador IRC5.
 
 ## Configuración para WLS
 
-En PowerShell como Administrador
+### Configuración para habilitar dispositivos conectador por USB
+
+En PowerShell como Administrador lanzar los siguientes comandos.
 
 ```sh
 #Instalar  USBIPD
@@ -89,7 +95,73 @@ winget install --interactive --exact dorssel.usbipd-win
 #Ver el BUSID de las camaras
 usbipd list
 #Compartirlos con el WLS
-usbipd bind --busid <BUSID>
+usbipd bind --busid <$BUSID>
 #Conectar el dispositvo con WLS
-usbipd attach --wsl --busid <BUSID>
+usbipd attach --wsl --busid <$BUSID>
 ``` 
+<div align="center">
+    <img src="https://imgur.com/vJ7GwkB.png" alt="Ej_config_dispositivo_sub_compoartido">
+</div>
+
+### Configuración para comunicación entre ROS-RobotStudio
+
+En PowerShell verificar la IP configurada para esto lanzar los siguientes comandos.
+
+```sh
+#Verificar el identificaro de proceso en el cual esta el controlador virtual de Robot Studio
+tasklist /fi “IMAGENAME eq RobVC.exe”
+#Ver conexiones TCP existentes en el proceso del controlador virtual
+netstat -ano | findstr <$PIDRobVC.exe>
+``` 
+
+<div align="center">
+    <img src="https://imgur.com/aXPZgzc.png" alt="Ej_config_controladorvirtual_red">
+</div>
+
+En este caso el controlador virtual esta en el proceso `16448` y esta corriendo con la ip `127.0.0.1` con el puerto `80` expuesto para la comunicación. 
+
+```sh
+#Conocer la dirección IP de windows en la red local conecatada al WLS
+ipconfig
+``` 
+
+<div align="center">
+    <img src="https://imgur.com/VzAvPrd.png" alt="Ej_config_red_wind_wls">
+</div>
+
+la ip del sistema windows es la `172.25.60.1` en este ejemplo.
+
+En la terminal del WLS lanzar los siguientes comandos
+
+```sh
+#Mostrar las direcciones IP y la información de todas las interfaces de red activas en el sistema.
+#
+ip addr
+```
+
+<div align="center">
+    <img src="https://imgur.com/I9hpohm.png" alt="Ej_config_red_wind_wls">
+</div>
+
+En este caso la ip asignada para el wls es la `172.25.69.147` en este ejemplo.
+
+Se debe configurar en RobotStudio la IP de WLS para esto en el controlador virtual asegurarse que este la IP igual en el `ROB_1`.
+
+<div align="center">
+    <img src="https://imgur.com/ticJ1Qg.png" alt="Ej_config_red_robotstudio">
+</div>
+
+>[!IMPORTANT]
+>Para que funcione esta configuración es necesario que la ip de WLS este en la lista blanca de RobotStudio para esto ver [Adding the local computer to the virtual controller whitelist](https://github.com/PickNikRobotics/abb_ros2/blob/rolling/docs/NetworkingConfiguration.md#adding-the-local-computer-to-the-virtual-controller-whitelist)
+> Como alternativa se puede hacer [Adding the local computer to the virtual controller whitelist](https://github.com/PickNikRobotics/abb_ros2/blob/rolling/docs/NetworkingConfiguration.md#configuring-ssh-port-forwarding)
+
+
+
+
+
+## Agradecimientos
+
+- [PickNikRobotics - ABB driver ros2](https://github.com/PickNikRobotics/abb_ros2)
+- [abb_irb140_support](https://github.com/FreddyMartinez/abb_irb140_support/tree/master)
+- [Moviet2 Documentation](https://moveit.picknik.ai/main/index.html)
+- [realsense-ros](https://github.com/realsenseai/realsense-ros)

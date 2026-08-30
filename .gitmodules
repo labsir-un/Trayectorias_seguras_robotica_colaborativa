@@ -1,3 +1,23 @@
 [submodule "realsense-ros"]
 	path = realsense-ros
 	url = https://github.com/realsenseai/realsense-ros.git
+
+[submodule "ros_industrial_abb_driver/abb_ros2"]
+	path = ros_industrial_abb_driver/abb_ros2
+	url = https://github.com/ros-industrial/abb_ros2.git
+
+[submodule "ros_industrial_abb_driver/abb_libegm"]
+	path = ros_industrial_abb_driver/abb_libegm
+	url = https://github.com/ros-industrial/abb_libegm.git
+
+[submodule "ros_industrial_abb_driver/abb_librws"]
+	path = ros_industrial_abb_driver/abb_librws
+	url = https://github.com/ros-industrial/abb_librws.git
+
+[submodule "ros_industrial_abb_driver/abb_egm_rws_managers"]
+	path = ros_industrial_abb_driver/abb_egm_rws_managers
+	url = https://github.com/ros-industrial/abb_egm_rws_managers.git
+
+[submodule "ros_industrial_abb_driver/abb_ros2_msgs"]
+	path = ros_industrial_abb_driver/abb_ros2_msgs
+	url = https://github.com/ros-industrial/abb_ros2_msgs.git
