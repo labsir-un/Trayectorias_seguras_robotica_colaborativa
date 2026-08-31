@@ -14,8 +14,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MultiArrayDimension.msg"
   "msg/MultiArrayLayout.msg"
   "msg/Name.msg"
+  "msg/OperatorPerception.msg"
   "msg/Pose.msg"
   "msg/PoseCommand.msg"
+  "msg/RobotOperatorInteraction.msg"
   #"srv/ComputeRectangleArea.srv"
  )
 
