@@ -1,0 +1,192 @@
+<?xml version="1.0"?>
+
+<launch>
+
+  <!-- ============================================================ -->
+  <!-- Launch Arguments                                             -->
+  <!-- ============================================================ -->
+
+  <arg
+    name="runtime_config_package"
+    default="colab_supervision_bringup"
+    description="Package with the controller configuration in the config folder."
+  />
+
+  <arg
+    name="controllers_file"
+    default="abb_controllers_irb140.yaml"
+    description="YAML file with the controllers configuration."
+  />
+
+  <arg
+    name="description_package"
+    default="colab_supervision_description"
+    description="Description package with robot URDF/XACRO files."
+  />
+
+  <arg
+    name="moveit_config_package"
+    default="colab_supervision_moveit_config"
+    description="MoveIt configuration package for the robot."
+  />
+
+  <arg
+    name="description_file"
+    default="irb140.xacro"
+    description="URDF/XACRO description file with the robot."
+  />
+
+  <arg
+    name="prefix"
+    default=""
+    description="Prefix of the joint names."
+  />
+
+  <arg
+    name="use_fake_hardware"
+    default="false"
+    description="Start robot with fake hardware."
+  />
+
+  <arg
+    name="rws_ip"
+    default="172.25.64.1"
+    description="IP address of the RWS controller."
+  />
+
+  <arg
+    name="rws_port"
+    default="80"
+    description="Port used by RWS."
+  />
+
+  <arg
+    name="configure_via_rws"
+    default="true"
+    description="Configure the robot using RWS."
+  />
+
+  <arg
+    name="fake_sensor_commands"
+    default="false"
+    description="Enable fake command interfaces for sensors."
+  />
+
+  <arg
+    name="initial_joint_controller"
+    default="arm_abb_irb_140_controller"
+    description="Robot controller to start."
+  />
+
+  <arg
+    name="launch_rviz"
+    default="false"
+    description="Launch RViz."
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Robot Description                                            -->
+  <!-- ============================================================ -->
+
+  <let
+    name="robot_description_content"
+    value="$(command '$(find-exec xacro) $(find-pkg-share $(var description_package))/urdf/$(var description_file) prefix:=$(var prefix) use_fake_hardware:=$(var use_fake_hardware) fake_sensor_commands:=$(var fake_sensor_commands) rws_ip:=$(var rws_ip) rws_port:=$(var rws_port) configure_via_rws:=$(var configure_via_rws)')"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Controller Configuration                                     -->
+  <!-- ============================================================ -->
+
+  <let
+    name="robot_controllers"
+    value="$(find-pkg-share $(var runtime_config_package))/config/$(var controllers_file)"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- RViz Configuration                                           -->
+  <!-- ============================================================ -->
+
+  <let
+    name="rviz_config_file"
+    value="$(find-pkg-share $(var moveit_config_package))/config/moveit.rviz"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- ros2_control Node                                            -->
+  <!-- ============================================================ -->
+
+  <node
+    pkg="controller_manager"
+    exec="ros2_control_node"
+    output="both">
+
+    <param
+      name="robot_description"
+      value="$(var robot_description_content)"
+    />
+
+    <param
+      from="$(var robot_controllers)"
+    />
+
+  </node>
+
+
+  <!-- ============================================================ -->
+  <!-- Robot State Publisher                                        -->
+  <!-- ============================================================ -->
+
+  <node
+    pkg="robot_state_publisher"
+    exec="robot_state_publisher"
+    output="both">
+
+    <param
+      name="robot_description"
+      value="$(var robot_description_content)"
+    />
+
+  </node>
+
+
+  <!-- ============================================================ -->
+  <!-- RViz                                                         -->
+  <!-- ============================================================ -->
+
+  <node
+    if="$(var launch_rviz)"
+    pkg="rviz2"
+    exec="rviz2"
+    name="rviz2"
+    output="log"
+    args="-d $(var rviz_config_file)"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Joint State Broadcaster                                      -->
+  <!-- ============================================================ -->
+  <!-- <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster"/> -->
+  <node
+    pkg="controller_manager"
+    exec="spawner"
+    args="joint_state_broadcaster --controller-manager /controller_manager"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Initial Joint Controller                                     -->
+  <!-- ============================================================ -->
+
+  <node
+    pkg="controller_manager"
+    exec="spawner"
+    args="$(var initial_joint_controller) --controller-manager /controller_manager"
+  />
+
+</launch>
+

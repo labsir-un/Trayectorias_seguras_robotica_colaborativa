@@ -1,0 +1,238 @@
+<?xml version="1.0"?>
+
+<launch>
+
+  <!-- ============================================================ -->
+  <!-- Launch Arguments                                             -->
+  <!-- ============================================================ -->
+
+  <arg
+    name="robot_xacro_file"
+    default="irb140.urdf.xacro"
+    description="Xacro describing the robot."
+  />
+
+  <arg
+    name="support_package"
+    default="colab_supervision_description"
+    description="Name of the support package."
+  />
+
+  <arg
+    name="moveit_config_package"
+    default="colab_supervision_moveit_config"
+    description="Name of the MoveIt configuration package."
+  />
+
+  <arg
+    name="moveit_config_file"
+    default="abb_irb140_cain.srdf"
+    description="Name of the SRDF file."
+  />
+
+  <arg
+    name="rviz_config_package"
+    default="colab_supervision_bringup"
+    description="Name of the RViz configuration package."
+  />
+
+  <arg
+    name="rviz_config_file"
+    default="abb_irb_140_moveit.rviz"
+    description="Name of the RViz configuration file."
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Robot Description                                            -->
+  <!-- ============================================================ -->
+
+  <let
+    name="robot_description_content"
+    value="$(find-pkg-share $(var support_package))/urdf/$(var robot_xacro_file)"
+  />
+
+  <let
+    name="robot_description_semantic_content"
+    value="$(find-pkg-share $(var moveit_config_package))/config/$(var moveit_config_file)"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Configuration Files                                          -->
+  <!-- ============================================================ -->
+
+  <let
+    name="kinematics_file"
+    value="$(find-pkg-share $(var moveit_config_package))/config/kinematics.yaml"
+  />
+
+  <let
+    name="moveit_controllers_file"
+    value="$(find-pkg-share $(var moveit_config_package))/config/moveit_controllers.yaml"
+  />
+
+  <let
+    name="joint_limits_file"
+    value="$(find-pkg-share $(var moveit_config_package))/config/joint_limits.yaml"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Move Group                                                   -->
+  <!-- ============================================================ -->
+
+  <include file="$(find-pkg-share $(var moveit_config_package))/launch/move_group.launch.py"/>
+
+  <!-- <node
+    pkg="moveit_ros_move_group"
+    exec="move_group"
+    output="screen"> -->
+
+    <!-- Robot description -->
+    <!-- <param
+      name="robot_description"
+      value="$(var robot_description_content)"
+      type="str"
+    /> -->
+
+    <!-- SRDF -->
+    <!-- <param
+      name="robot_description_semantic"
+      value="$(var robot_description_semantic_content)"
+      type="str"
+    />
+
+    <param
+      from="$(var kinematics_file)"
+    />
+
+    <param
+      from="$(var joint_limits_file)"
+    />
+
+    <param
+      from="$(var moveit_controllers_file)"
+    /> -->
+
+    <!-- Planning Scene Monitor -->
+    <!-- <param
+      name="publish_planning_scene"
+      value="true"
+    />
+
+    <param
+      name="publish_geometry_updates"
+      value="true"
+    />
+
+    <param
+      name="publish_state_updates"
+      value="true"
+    />
+
+    <param
+      name="publish_transforms_updates"
+      value="true"
+    />
+
+    <param
+      name="publish_robot_description"
+      value="true"
+    />
+
+    <param
+      name="publish_robot_description_semantic"
+      value="true"
+    /> -->
+
+    <!-- MoveIt does not automatically manage controllers -->
+    <!-- <param
+      name="moveit_manage_controllers"
+      value="false"
+    /> -->
+
+  <!-- </node> -->
+
+
+  <!-- ============================================================ -->
+  <!-- RViz                                                         -->
+  <!-- ============================================================ -->
+
+  <let
+    name="rviz_config"
+    value="$(find-pkg-share $(var rviz_config_package))/rviz/$(var rviz_config_file)"
+  />
+
+  <node
+    pkg="rviz2"
+    exec="rviz2"
+    output="log"
+    args="-d $(var rviz_config)">
+
+    <!-- <param
+      name="robot_description"
+      value="$(var robot_description_content)"
+      type="str"
+    />
+
+    <param
+      name="robot_description_semantic"
+      value="$(var robot_description_semantic_content)"
+      type="str"
+    /> -->
+
+    <!-- <param
+      name="kinematics"
+      value="$(var kinematics_file)"
+      type="str"
+    />
+
+    <param
+      name="joint_limits"
+      value="$(var joint_limits_file)"
+      type="str"
+    />
+
+    <param
+      name="moveit_controllers"
+      value="$(var moveit_controllers_file)"
+      type="str"
+    /> -->
+
+  </node>
+
+
+  <!-- ============================================================ -->
+  <!-- Static TF: world -> base_link                                -->
+  <!-- ============================================================ -->
+
+  <node
+    pkg="tf2_ros"
+    exec="static_transform_publisher"
+    name="static_transform_publisher"
+    output="log"
+    args="0.0 0.0 0.0 0.0 0.0 0.0 world base_link"
+  />
+
+
+  <!-- ============================================================ -->
+  <!-- Robot State Publisher                                        -->
+  <!-- ============================================================ -->
+
+  <node
+    pkg="robot_state_publisher"
+    exec="robot_state_publisher"
+    name="robot_state_publisher"
+    output="both">
+
+    <param name="robot_description" 
+      value="$(command 'xacro $(var robot_description_content)')"/>
+
+  </node>
+
+
+  <node pkg="colab_supervision_commander" exec="commander" />
+
+</launch>
+
