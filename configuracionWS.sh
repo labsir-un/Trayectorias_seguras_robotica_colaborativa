@@ -24,7 +24,7 @@ if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
 fi
 echo "Actualizando rosdep..."
 rosdep update
-rosdep install -i --from-path src --rosdistro "$ROS_DISTRO" --skip-keys=librealsense2 -y
+rosdep install -i --from-path src --ignore-src --rosdistro "$ROS_DISTRO" --skip-keys="librealsense2 warehouse_ros_mongo" -y
 
 # Compilación inicial con colcon cargando el entorno de ROS
 echo "Compilando workspace..."
@@ -105,8 +105,8 @@ if command -v kitty &>/dev/null; then
     tab_bar_edge bottom
     tab_bar_style powerline
     tab_powerline_style slanted
-    tab_title_template "{index}:{title[:6]}…{title[-6:]} if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
-    active_tab_title_template "{index}:{title[:6]}…{title[-6:]} if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
+    tab_title_template "  {index}:{f'{title[:6]}…{title[-6:]}' if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
+    active_tab_title_template " {index}:{f'{title[:6]}…{title[-6:]}' if title.rindex(title[-1]) + 1 > 25 else title}{' []' if layout_name == 'stack' else ''} "
     # --- Fin configuraciones ---
 EOF
     kill -SIGUSR1 $(pgrep kitty) 2>/dev/null || true
