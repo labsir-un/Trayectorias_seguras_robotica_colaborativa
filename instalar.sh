@@ -122,6 +122,7 @@ instalar_apt "ros-$ROS_DISTRO-rmw-cyclonedds-cpp"
 instalar_apt "ros-$ROS_DISTRO-ros2-control"
 instalar_apt "ros-$ROS_DISTRO-ros2-controllers"
 instalar_apt "ros-$ROS_DISTRO-controller-manager"
+instalar_apt "ros-$ROS_DISTRO-tf-transformations"
 
 cd $DIRECTORIO_ORIGEN
 
