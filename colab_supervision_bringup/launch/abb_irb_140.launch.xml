@@ -24,7 +24,7 @@
 
     <node pkg="colab_supervision_commander" exec="commander" />
 
-    <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)"/>
+    <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)">
         <param from="$(var kinematics_path)"/>
     </node>
 </launch>
