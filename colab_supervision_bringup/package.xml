@@ -11,6 +11,7 @@
 
   <exec_depend>colab_supervision_description</exec_depend>
   <exec_depend>colab_supervision_moveit_config</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>rviz2</exec_depend>
