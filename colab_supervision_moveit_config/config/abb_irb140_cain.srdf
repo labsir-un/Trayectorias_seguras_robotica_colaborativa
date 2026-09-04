@@ -20,7 +20,6 @@
         <joint name="tool_joint"/>
     </group>
     <group name="prototipe_jsdaleman">
-        <joint name="tool_joint"/>
         <joint name="end_effector_joint"/>
         <joint name="tcp_joint"/>
     </group>
