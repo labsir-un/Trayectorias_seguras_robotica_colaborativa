@@ -256,4 +256,6 @@ AMENT_IGNORE
 .ionide
 settings.json
 
+ros_industrial_abb_driver/.vscode/*
+
 # End of https://www.toptal.com/developers/gitignore/api/ros2,python,c++
