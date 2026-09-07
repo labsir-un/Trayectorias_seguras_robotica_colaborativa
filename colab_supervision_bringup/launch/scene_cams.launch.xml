@@ -1,0 +1,19 @@
+<launch>
+
+    <arg name="autonome" default="true" description="Modo autónomo completo o consola manual"/>
+    <arg name="launch_rviz" default="true" description="Lanzar RViz2 de solo el robot"/>
+    <arg name="rviz_custom_config" default="true" description="Visualización en rviz"/>
+    <arg name="rviz_config_package" default="colab_supervision_bringup" description="MoveIt configuration package for the robot."/>
+    <arg name="rviz_config" default="abb_irb140_scene_camD435i.rviz" description="nombre de archivo .rviz"/>
+
+    <include file="$(find-pkg-share colab_supervision_bringup)/launch/realsense_D435i.launch.xml"/>
+
+    <include file="$(find-pkg-share colab_supervision_bringup)/launch/abb_irb_140.launch.xml">
+        <arg name="autonome" value="$(var autonome)"/>
+        <arg name="launch_rviz" value="$(var launch_rviz)"/>
+        <arg name="rviz_custom_config" value="$(var rviz_custom_config)"/>
+        <arg name="rviz_config_package" value="$(var rviz_config_package)"/>
+        <arg name="rviz_config" value="$(var rviz_config)"/>
+    </include>
+
+</launch>

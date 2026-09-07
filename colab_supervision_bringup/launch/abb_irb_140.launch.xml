@@ -1,11 +1,26 @@
 <launch>
+    <arg name="autonome" default="true" description="Activación o no de consola de manipulación de Moveit"/>
+    <arg name="launch_rviz" default="true" description="Visualización en rviz"/>
+    
+    <arg name="rviz_custom_config" default="false" description="Visualización en rviz personalizada"/>
+    <arg name="rviz_config_package" default="" description="MoveIt configuration package for the robot."/>
+    <arg name="rviz_config" default="" description="nombre de archivo .rviz"/>
+
     <let name="urdf_path" 
         value="$(find-pkg-share colab_supervision_description)/urdf/irb140.urdf.xacro"/>
-    <let name="rviz_config_path"
-        value="$(find-pkg-share colab_supervision_description)/rviz/urdf_config.rviz" />
     <let name="kinematics_path"
         value="$(find-pkg-share colab_supervision_moveit_config)/config/kinematics.yaml"/>
 
+    <let name="rviz_config_path" 
+        value="$(find-pkg-share colab_supervision_description)/rviz/urdf_config.rviz" 
+        if="$(and $(var autonome) $(not $(var rviz_custom_config)))"/>
+    <let name="rviz_config_path" 
+        value="$(find-pkg-share colab_supervision_bringup)/config/abb_irb_140_moveit.rviz" 
+        if="$(and $(not $(var autonome)) $(not $(var rviz_custom_config)))"/>
+    <let name="rviz_config_path" 
+        value="$(find-pkg-share $(var rviz_config_package))/config/$(var rviz_config)" 
+        if="$(var rviz_custom_config)"/>
+    
     <node pkg="robot_state_publisher" exec="robot_state_publisher">
         <param name="robot_description" 
             value="$(command 'xacro $(var urdf_path)')"/>
@@ -24,7 +39,5 @@
 
     <node pkg="colab_supervision_commander" exec="commander" />
 
-    <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)">
-        <param from="$(var kinematics_path)"/>
-    </node>
+    <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)" if="$(var launch_rviz)"/>
 </launch>
