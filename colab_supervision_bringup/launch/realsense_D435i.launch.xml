@@ -8,7 +8,7 @@
     </include>
 
     <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_base_link" 
-        args="--x -0.15 --y 0.0 --z 1.81 --yaw -0.0872665 --pitch 1.0472 --roll -0.174533 --frame-id world --child-frame-id D435i_link" />
+        args="--x -0.15 --y 0.0 --z 1.81 --yaw 0.0 --pitch 1.01229 --roll 0.0 --frame-id world --child-frame-id D435i_link" />
     <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_base_robot" 
         args="--x 0.0 --y 0.0 --z 0.0 --yaw -0.0 --pitch 0.0 --roll -0.0 --frame-id world --child-frame-id base_link" />
 </launch>   

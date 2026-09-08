@@ -60,6 +60,7 @@ instalar_apt cowsay
 instalar_apt lolcat
 instalar_apt curl
 instalar_apt usbutils
+intalar_apt v4l-utils
 instalar_snap code --classic
 
 echo "=== [3/4] Instalando Kitty Terminal ==="
