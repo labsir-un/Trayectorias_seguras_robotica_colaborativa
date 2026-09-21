@@ -260,4 +260,8 @@ ros_industrial_abb_driver/.vscode/*
 
 !colab_supervision_description/meshes/visual/obj/*.obj
 
+!abb_robotstudio/abb_driver/*.dll
+!abb_robotstudio/abb_driver/*.exe
+!abb_robotstudio/ColabControl/*.mod
+
 # End of https://www.toptal.com/developers/gitignore/api/ros2,python,c++
