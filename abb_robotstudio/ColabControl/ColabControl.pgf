@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<Program>
+	<Module>Mecatronica25.mod</Module>
+	<Module>Wobj_WO_PasReal.mod</Module>
+	<Module>TCP_ProtJSD.mod</Module>
+	<Module>Socket.mod</Module>
+	<Module>ModuloPrin.mod</Module>
+	<Module>LABSIR.mod</Module>
+	<Module>InterrupcionesSocket.mod</Module>
+	<Module>Interrupciones.mod</Module>
+	<Module>ComandosSocket.mod</Module>
+	<Module>Ingenieria165.mod</Module>
+</Program>
