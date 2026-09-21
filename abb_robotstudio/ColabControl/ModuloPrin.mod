@@ -79,7 +79,6 @@ MODULE ModuloPrin
     PERS string Estado_Socket:="Se esta revisando el comando";
     PERS bool Conectar_Socket:=FALSE;
     PERS robtarget p_actual;
-    PERS robtarget p_salida;
     PERS bool Postura_segura:=FALSE;
     
     !Variables condición de trayectoria
@@ -429,6 +428,11 @@ MODULE ModuloPrin
                 p_OrigenActual:=Punto_Array(path_contacto_actual, index_contacto_origen);
                 p_DestinoActual:=Punto_Array(path_contacto_actual, index_vacio_destino);
         ENDTEST
+        ERROR
+            TEST ERRNO
+                CASE ERR_INVDIM:
+                    Estado_Socket:="Error de indices, no se ejecuto el comienzo de la trayectoria";
+            ENDTEST
     ENDPROC
     PROC ReiniciarIndices()
         index_contacto_origen:=0;

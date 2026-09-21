@@ -16,6 +16,7 @@ MODULE ComandosSocket
     VAR num offx := 0;
     VAR num offy := 0;
     VAR num offz := 0;
+    PERS robtarget p_salida;
     PERS robtarget p_salida_guardado;
     
     PROC EjecutarComando(string Prefijo, string ObjComando, string Variable, string Valor)
