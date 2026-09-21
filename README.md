@@ -58,10 +58,10 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 
 <!-- TOC -->
 - [Resumen de archivos](#resumen-de-archivos)
+- [Resumen carpeta robotstudio](#resumen-carpeta-robotstudio)
 - [Resumen de paquetes](#resumen-de-paquetes)
 - [Configuración para WLS](#configuración-para-wls)
   - [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb)
-  - [Configuración para comunicación entre ROS-RobotStudio](#configuración-para-comunicación-entre-ros-robotstudio)
 - [Agradecimientos](#agradecimientos)
 </details>
 
@@ -72,6 +72,12 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - `instalar.sh`: Instalación automática de programas utiliados.
 - `configuracionWS.conf`: Parámetros de configuración inicial del Work Space.
 - `configuracionWS.sh`: Configuración del Work Space inicial y de comandos para trabajo.
+
+## Resumen carpeta robotstudio
+
+- `abb_driver`: Programa desarrollado con PC SDK para comunicación entre el controlador IRC5 y un socket.
+- `ColabControl`: Modulos de programa de RAPID para la tarea colaborativa y parser de mensajes del socket.
+- `pack_and_go`: Pack and Go de la estación final para simulacion.
 
 ## Resumen de paquetes
 
@@ -103,60 +109,8 @@ usbipd attach --wsl --busid <$BUSID>
     <img src="https://imgur.com/vJ7GwkB.png" alt="Ej_config_dispositivo_sub_compoartido">
 </div>
 
-### Configuración para comunicación entre ROS-RobotStudio
-
-En PowerShell verificar la IP configurada para esto lanzar los siguientes comandos.
-
-```sh
-#Verificar el identificaro de proceso en el cual esta el controlador virtual de Robot Studio
-tasklist /fi “IMAGENAME eq RobVC.exe”
-#Ver conexiones TCP existentes en el proceso del controlador virtual
-netstat -ano | findstr <$PIDRobVC.exe>
-``` 
-
-<div align="center">
-    <img src="https://imgur.com/aXPZgzc.png" alt="Ej_config_controladorvirtual_red">
-</div>
-
-En este caso el controlador virtual esta en el proceso `16448` y esta corriendo con la ip `127.0.0.1` con el puerto `80` expuesto para la comunicación. 
-
-```sh
-#Conocer la dirección IP de windows en la red local conecatada al WLS
-ipconfig
-``` 
-
-<div align="center">
-    <img src="https://imgur.com/VzAvPrd.png" alt="Ej_config_red_wind_wls">
-</div>
-
-la ip del sistema windows es la `172.25.60.1` en este ejemplo.
-
-En la terminal del WLS lanzar los siguientes comandos
-
-```sh
-#Mostrar las direcciones IP y la información de todas las interfaces de red activas en el sistema.
-#
-ip addr
-```
-
-<div align="center">
-    <img src="https://imgur.com/I9hpohm.png" alt="Ej_config_red_wind_wls">
-</div>
-
-En este caso la ip asignada para el wls es la `172.25.69.147` en este ejemplo.
-
-Se debe configurar en RobotStudio la IP de WLS para esto en el controlador virtual asegurarse que este la IP igual en el `ROB_1`.
-
-<div align="center">
-    <img src="https://imgur.com/ticJ1Qg.png" alt="Ej_config_red_robotstudio">
-</div>
-
->[!IMPORTANT]
->Para que funcione esta configuración es necesario que la ip de WLS este en la lista blanca de RobotStudio para esto ver [Adding the local computer to the virtual controller whitelist](https://github.com/PickNikRobotics/abb_ros2/blob/rolling/docs/NetworkingConfiguration.md#adding-the-local-computer-to-the-virtual-controller-whitelist)
-> Como alternativa se puede hacer [Adding the local computer to the virtual controller whitelist](https://github.com/PickNikRobotics/abb_ros2/blob/rolling/docs/NetworkingConfiguration.md#configuring-ssh-port-forwarding)
-
-
-
+>[!IMPORTANT] 
+>Cada vez que se reinicie el WLS o se use el recurso compartido se debe verificar que este unido al WLS para su funcionamiento.
 
 
 ## Agradecimientos
