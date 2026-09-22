@@ -615,24 +615,11 @@ private:
 
 int main(int argc, char* argv[])
 {
+
     rclcpp::init(argc, argv);
-
-    try
-    {
-        auto node = std::make_shared<TCPSocketNode>();
-
-        rclcpp::spin(node);
-    }
-    catch (const std::exception& error)
-    {
-        RCLCPP_FATAL(
-            rclcpp::get_logger("tcp_socket_node"),
-            "Node initialization failed: %s",
-            error.what()
-        );
-    }
-
+    auto node = std::make_shared<TCPSocketNode>("tcp_socket_node");
+    rclcpp::spin(node);
+    
     rclcpp::shutdown();
-
     return 0;
 }
