@@ -1,0 +1,98 @@
+<launch>
+
+    <!-- ============================================================
+         PARAMETROS DE CONEXION TCP
+         ============================================================ -->
+
+    <arg
+        name="server_ip"
+        default="172.25.64.1"
+        description="IP del servidor TCP en Windows"
+    />
+
+    <arg
+        name="server_port"
+        default="5000"
+        description="Puerto del servidor TCP"
+    />
+
+
+    <!-- ============================================================
+         TOPICOS
+         ============================================================ -->
+
+    <arg
+        name="control_command_topic"
+        default="/control_command"
+        description="Topic de comandos de control"
+    />
+
+    <arg
+        name="tcp_send_topic"
+        default="/tcp_socket/send"
+        description="Topic de envio al socket TCP"
+    />
+
+    <arg
+        name="tcp_receive_topic"
+        default="/tcp_socket/receive"
+        description="Topic de recepcion desde el socket TCP"
+    />
+
+
+    <!-- ============================================================
+         NODO TCP SOCKET
+         ============================================================ -->
+
+    <node
+        pkg="colab_supervision_abb_brige"
+        exec="tcp_socket_node"
+        name="tcp_socket_node"
+        output="screen">
+
+        <param
+            name="server_ip"
+            value="$(var server_ip)"
+        />
+
+        <param
+            name="server_port"
+            value="$(var server_port)"
+        />
+
+        <param
+            name="tx_topic"
+            value="$(var tcp_send_topic)"
+        />
+
+        <param
+            name="rx_topic"
+            value="$(var tcp_receive_topic)"
+        />
+
+    </node>
+
+
+    <!-- ============================================================
+         NODO COMMAND BRIDGE
+         ============================================================ -->
+
+    <node
+        pkg="colab_supervision_abb_brige"
+        exec="command_bridge"
+        name="command_bridge"
+        output="screen">
+
+        <param
+            name="input_topic"
+            value="$(var control_command_topic)"
+        />
+
+        <param
+            name="output_topic"
+            value="$(var tcp_send_topic)"
+        />
+
+    </node>
+
+</launch>

@@ -62,6 +62,7 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - [Resumen de paquetes](#resumen-de-paquetes)
 - [Configuración para WLS](#configuración-para-wls)
   - [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb)
+  - [Verificar IP de conexión para el socket](#verificar-ip-de-conexión-para-el-socket)
 - [Agradecimientos](#agradecimientos)
 </details>
 
@@ -111,6 +112,24 @@ usbipd attach --wsl --busid <$BUSID>
 
 >[!IMPORTANT] 
 >Cada vez que se reinicie el WLS o se use el recurso compartido se debe verificar que este unido al WLS para su funcionamiento.
+
+### Verificar IP de conexión para el socket
+
+```sh
+#Muestra la IP de conexión con WIN11
+ip route show default
+```
+
+<div align="center">
+    <img src="https://imgur.com/pVM85I8.png" alt="Ej_config_dispositivo_sub_compoartido">
+</div>
+
+>[!WARNING]
+>Si la IP no corresponde con la asignada para WLS el programa de PC SDK no respondera dado que no se accede a la red de acceso del programa el valor por defecto que se tiene es `172.25.64.1`
+
+
+
+
 
 
 ## Agradecimientos
