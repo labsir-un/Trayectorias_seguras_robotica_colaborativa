@@ -11,6 +11,7 @@ Este nodo:
 """
 
 import cv2
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -21,16 +22,21 @@ from colab_supervision_operator.perception.expression_analyzer import Expression
 from colab_supervision_operator.perception.head_pose_estimator import HeadPoseEstimator
 from colab_supervision_operator.perception.attention_analyzer import AttentionAnalyzer
 from colab_supervision_operator.perception.person_tracker import PersonTracker
-
+from colab_supervision_operator.perception.face_landmark_detector import FaceLandmarkDetector
+from colab_supervision_operator.perception.person_detector import PersonDetector
 
 class OperatorFatigueNode(Node):
+    """
+    Nodo ROS 2 para percepción del operador mediante cámara RGB.
+    """
 
     def __init__(self):
+
         super().__init__("operator_fatigue_node")
 
-        # ==============================================================
+        # ====================================================
         # PARÁMETROS
-        # ==============================================================
+        # ====================================================
 
         self.declare_parameter(
             "camera_device",
@@ -52,21 +58,51 @@ class OperatorFatigueNode(Node):
             30.0
         )
 
-        # --------------------------------------------------------------
-        # Visualización de la cámara
-        #
-        # False -> no se crea ninguna ventana de OpenCV
-        # True  -> se muestra la imagen capturada
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
+        # Visualización general
+        # ----------------------------------------------------
 
         self.declare_parameter(
             "visualizar",
             False
         )
 
-        # ==============================================================
+        # ----------------------------------------------------
+        # Mostrar landmarks faciales
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "points_face",
+            False
+        )
+
+        # ------------------------------------------------------------
+        # YOLO
+        # ------------------------------------------------------------
+
+        self.declare_parameter(
+            "yolo_model",
+            "yolo26n.pt"
+        )
+
+        self.declare_parameter(
+            "yolo_confidence",
+            0.5
+        )
+
+        self.declare_parameter(
+            "yolo_imgsz",
+            640
+        )
+
+        self.declare_parameter(
+            "yolo_device",
+            ""
+        )
+
+        # ====================================================
         # OBTENER PARÁMETROS
-        # ==============================================================
+        # ====================================================
 
         self._camera_device = self.get_parameter(
             "camera_device"
@@ -88,405 +124,674 @@ class OperatorFatigueNode(Node):
             "visualizar"
         ).value
 
-        # ==============================================================
-        # MÓDULOS DE PERCEPCIÓN
-        # ==============================================================
+        self._points_face = self.get_parameter(
+            "points_face"
+        ).value
 
-        self._fatigue_analyzer = FatigueAnalyzer()
-        self._blink_analyzer = BlinkAnalyzer()
-        self._expression_analyzer = ExpressionAnalyzer()
-        self._head_pose_estimator = HeadPoseEstimator()
-        self._attention_analyzer = AttentionAnalyzer()
+        # ====================================================
+        # OBTENER PARÁMETROS de Modelo
+        # ====================================================
+        
+        yolo_model = self.get_parameter(
+            "yolo_model"
+        ).value
+
+        yolo_confidence = self.get_parameter(
+            "yolo_confidence"
+        ).value
+
+        yolo_imgsz = self.get_parameter(
+            "yolo_imgsz"
+        ).value
+
+        yolo_device = self.get_parameter(
+            "yolo_device"
+        ).value
+
+        if yolo_device == "":
+            yolo_device = None
+
+        self._person_detector = PersonDetector(
+            model_path=yolo_model,
+            confidence_threshold=yolo_confidence,
+            image_size=yolo_imgsz,
+            device=yolo_device,
+        )
+
+        # ====================================================
+        # INFORMACIÓN
+        # ====================================================
+
+        self.get_logger().info(
+            "=============================================="
+        )
+
+        self.get_logger().info(
+            "Inicializando Operator Fatigue Node"
+        )
+
+        self.get_logger().info(
+            f"Cámara: {self._camera_device}"
+        )
+
+        self.get_logger().info(
+            f"Resolución solicitada: "
+            f"{self._camera_width}x{self._camera_height}"
+        )
+
+        self.get_logger().info(
+            f"FPS solicitado: {self._camera_fps}"
+        )
+
+        self.get_logger().info(
+            f"Visualización: {self._visualizar}"
+        )
+
+        self.get_logger().info(
+            f"Landmarks faciales: {self._points_face}"
+        )
+
+        self.get_logger().info(
+            "=============================================="
+        )
+
+        # ====================================================
+        # CÁMARA
+        # ====================================================
+
+        self._camera = self._initialize_camera()
+
+        if self._camera is None:
+            raise RuntimeError(
+                "No fue posible inicializar la cámara RGB."
+            )
+
+        # ====================================================
+        # PERCEPCIÓN
+        # ====================================================
+
+        self._person_detector = PersonDetector(
+            model_path="yolo26n.pt",
+            confidence_threshold=0.5,
+            image_size=640,
+        )
+
         self._person_tracker = PersonTracker()
 
-        # ==============================================================
-        # CÁMARA
-        # ==============================================================
+        self._face_landmark_detector = FaceLandmarkDetector(
+            min_detection_confidence=0.5,
+            max_num_faces=1,
+        )
 
-        self._camera = None
+        # ====================================================
+        # TIMER
+        # ====================================================
 
-        self._initialize_camera()
-
-        # ==============================================================
-        # TEMPORIZADOR
-        # ==============================================================
-
-        self._timer_period = 1.0 / self._camera_fps
+        timer_period = 1.0 / self._camera_fps
 
         self._timer = self.create_timer(
-            self._timer_period,
+            timer_period,
             self._process_frame
         )
 
         self.get_logger().info(
-            "Operator fatigue node initialized"
+            "Operator Fatigue Node iniciado correctamente."
         )
 
-        self.get_logger().info(
-            f"Camera device: {self._camera_device}"
-        )
-
-        self.get_logger().info(
-            f"Visualization: {'enabled' if self._visualizar else 'disabled'}"
-        )
-
-    # ==================================================================
-    # INICIALIZACIÓN DE LA CÁMARA
-    # ==================================================================
+    # ========================================================
+    # CÁMARA
+    # ========================================================
 
     def _initialize_camera(self):
 
         self.get_logger().info(
-            "Initializing RGB camera..."
+            "Inicializando cámara mediante V4L2..."
         )
 
-        # --------------------------------------------------------------
-        # Abrir cámara utilizando V4L2
-        # --------------------------------------------------------------
-
-        self._camera = cv2.VideoCapture(
+        camera = cv2.VideoCapture(
             self._camera_device,
             cv2.CAP_V4L2
         )
 
-        if not self._camera.isOpened():
+        if not camera.isOpened():
 
             self.get_logger().error(
-                f"Could not open camera: {self._camera_device}"
+                f"No se pudo abrir la cámara: "
+                f"{self._camera_device}"
             )
 
-            self._camera = None
+            return None
 
-            return
+        # ----------------------------------------------------
+        # Formato MJPG
+        # ----------------------------------------------------
 
-        # --------------------------------------------------------------
-        # Utilizar MJPG
-        # --------------------------------------------------------------
-
-        self._camera.set(
+        camera.set(
             cv2.CAP_PROP_FOURCC,
             cv2.VideoWriter_fourcc(*"MJPG")
         )
 
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
         # Resolución
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
 
-        self._camera.set(
+        camera.set(
             cv2.CAP_PROP_FRAME_WIDTH,
             self._camera_width
         )
 
-        self._camera.set(
+        camera.set(
             cv2.CAP_PROP_FRAME_HEIGHT,
             self._camera_height
         )
 
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
         # FPS
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
 
-        self._camera.set(
+        camera.set(
             cv2.CAP_PROP_FPS,
             self._camera_fps
         )
 
-        # ==============================================================
-        # VERIFICAR CONFIGURACIÓN NEGOCIADA
-        # ==============================================================
+        # ----------------------------------------------------
+        # Leer primer frame
+        # ----------------------------------------------------
 
-        actual_width = self._camera.get(
-            cv2.CAP_PROP_FRAME_WIDTH
-        )
-
-        actual_height = self._camera.get(
-            cv2.CAP_PROP_FRAME_HEIGHT
-        )
-
-        actual_fps = self._camera.get(
-            cv2.CAP_PROP_FPS
-        )
-
-        actual_fourcc = int(
-            self._camera.get(cv2.CAP_PROP_FOURCC)
-        )
-
-        fourcc_string = "".join(
-            [
-                chr(actual_fourcc & 0xFF),
-                chr((actual_fourcc >> 8) & 0xFF),
-                chr((actual_fourcc >> 16) & 0xFF),
-                chr((actual_fourcc >> 24) & 0xFF),
-            ]
-        )
-
-        self.get_logger().info(
-            "RGB camera opened successfully"
-        )
-
-        self.get_logger().info(
-            f"Resolution: {int(actual_width)}x{int(actual_height)}"
-        )
-
-        self.get_logger().info(
-            f"FPS: {actual_fps:.2f}"
-        )
-
-        self.get_logger().info(
-            f"Format: {fourcc_string}"
-        )
-
-        # ==============================================================
-        # PROBAR PRIMER FRAME
-        # ==============================================================
-
-        ret, frame = self._camera.read()
+        ret, frame = camera.read()
 
         if not ret or frame is None:
 
             self.get_logger().error(
-                "Camera opened but failed to capture first frame"
+                "La cámara abrió correctamente, "
+                "pero no fue posible obtener el primer frame."
             )
 
-            self._camera.release()
-            self._camera = None
+            camera.release()
 
-            return
+            return None
 
-        self.get_logger().info(
-            f"First frame captured successfully: {frame.shape}"
+        # ----------------------------------------------------
+        # Información real de la cámara
+        # ----------------------------------------------------
+
+        width = int(
+            camera.get(cv2.CAP_PROP_FRAME_WIDTH)
         )
 
-    # ==================================================================
-    # PROCESAMIENTO DE FRAME
-    # ==================================================================
+        height = int(
+            camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        )
+
+        fps = camera.get(
+            cv2.CAP_PROP_FPS
+        )
+
+        fourcc = int(
+            camera.get(cv2.CAP_PROP_FOURCC)
+        )
+
+        fourcc_text = "".join(
+            [
+                chr((fourcc >> 0) & 0xFF),
+                chr((fourcc >> 8) & 0xFF),
+                chr((fourcc >> 16) & 0xFF),
+                chr((fourcc >> 24) & 0xFF),
+            ]
+        )
+
+        self.get_logger().info(
+            "Cámara inicializada:"
+        )
+
+        self.get_logger().info(
+            f"  Resolución: {width}x{height}"
+        )
+
+        self.get_logger().info(
+            f"  FPS: {fps:.2f}"
+        )
+
+        self.get_logger().info(
+            f"  Formato: {fourcc_text}"
+        )
+
+        self.get_logger().info(
+            "Primer frame capturado correctamente."
+        )
+
+        return camera
+
+    # ========================================================
+    # PROCESAMIENTO PRINCIPAL
+    # ========================================================
 
     def _process_frame(self):
 
-        if self._camera is None:
-            return
-
-        # --------------------------------------------------------------
-        # Capturar frame
-        # --------------------------------------------------------------
+        # ----------------------------------------------------
+        # Leer frame
+        # ----------------------------------------------------
 
         ret, frame = self._camera.read()
 
         if not ret or frame is None:
 
-            self.get_logger().warn(
-                "Failed to read RGB frame"
+            self.get_logger().warning(
+                "No fue posible obtener un frame."
             )
 
             return
 
-        # ==============================================================
-        # VISUALIZACIÓN
-        # ==============================================================
+        # ----------------------------------------------------
+        # Imagen de visualización
+        # ----------------------------------------------------
 
-        if self._visualizar:
+        display_frame = frame.copy()
 
-            cv2.imshow(
-                "Operator RGB Camera",
-                frame
-            )
-
-            # ----------------------------------------------------------
-            # Tecla Q o ESC para cerrar la ventana
-            # ----------------------------------------------------------
-
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord("q") or key == 27:
-
-                self.get_logger().info(
-                    "Visualization window closed by user"
-                )
-
-                self._visualizar = False
-
-                cv2.destroyWindow(
-                    "Operator RGB Camera"
-                )
-
-        # ==============================================================
+        # ====================================================
         # DETECCIÓN DE PERSONAS
-        # ==============================================================
+        # ====================================================
 
         persons = self._detect_persons(frame)
 
-        tracked_persons = self._person_tracker.update(persons)
+        # ----------------------------------------------------
+        # Actualizar tracker
+        # ----------------------------------------------------
 
-        # --------------------------------------------------------------
-        # No hay personas detectadas
-        # --------------------------------------------------------------
+        tracking_result = self._person_tracker.update(
+            persons
+        )
 
-        if not tracked_persons:
+        # ----------------------------------------------------
+        # Verificar si existe operador
+        # ----------------------------------------------------
 
-            self.get_logger().debug(
-                "No operator detected"
+        if not tracking_result.person_detected:
+
+            self._draw_no_operator(
+                display_frame
+            )
+
+            self._show_frame(
+                display_frame
             )
 
             return
 
-        # ==============================================================
-        # SELECCIONAR OPERADOR PRINCIPAL
-        # ==============================================================
+        # ----------------------------------------------------
+        # Obtener operador principal
+        # ----------------------------------------------------
 
-        primary_person = self._person_tracker.get_primary_person()
+        primary_person = (
+            self._person_tracker.get_primary_person()
+        )
 
         if primary_person is None:
-            self.get_logger().debug(
-                "No primary operator detected"
+
+            self._draw_no_operator(
+                display_frame
             )
+
+            self._show_frame(
+                display_frame
+            )
+
             return
 
-        # ==============================================================
-        # EXTRAER INFORMACIÓN FACIAL
-        # ==============================================================
+        # ====================================================
+        # DIBUJAR OPERADOR
+        # ====================================================
 
-        face_data = self._extract_face_data(
+        self._draw_person(
+            display_frame,
+            primary_person
+        )
+
+        # ====================================================
+        # RECORTE DEL OPERADOR
+        # ====================================================
+
+        person_image = self._crop_person(
             frame,
             primary_person
         )
 
-        if face_data is None:
+        if person_image is None:
+
+            self._show_frame(
+                display_frame
+            )
+
             return
 
-        # ==============================================================
-        # ANÁLISIS DE PARPADEO
-        # ==============================================================
+        # ====================================================
+        # DETECCIÓN DE LANDMARKS FACIALES
+        # ====================================================
 
-        blink_result = self._blink_analyzer.analyze(
-            face_data
+        face_result = (
+            self._face_landmark_detector.update(
+                person_image
+            )
         )
 
-        # ==============================================================
-        # ANÁLISIS DE EXPRESIÓN
-        # ==============================================================
+        # ----------------------------------------------------
+        # Si se encontró rostro
+        # ----------------------------------------------------
 
-        expression_result = self._expression_analyzer.analyze(
-            face_data
+        if face_result.face_detected:
+
+            self._draw_face_information(
+                display_frame,
+                face_result,
+                primary_person
+            )
+
+        else:
+
+            self._draw_no_face(
+                display_frame,
+                primary_person
+            )
+
+        # ====================================================
+        # MOSTRAR
+        # ====================================================
+
+        self._show_frame(
+            display_frame
         )
 
-        # ==============================================================
-        # ESTIMACIÓN DE POSTURA DE CABEZA
-        # ==============================================================
-
-        head_pose_result = self._head_pose_estimator.estimate(
-            face_data
-        )
-
-        # ==============================================================
-        # ANÁLISIS DE ATENCIÓN
-        # ==============================================================
-
-        attention_result = self._attention_analyzer.analyze(
-            head_pose_result
-        )
-
-        # ==============================================================
-        # ANÁLISIS DE FATIGA
-        # ==============================================================
-
-        fatigue_result = self._fatigue_analyzer.analyze(
-            blink_result=blink_result,
-            expression_result=expression_result
-        )
-
-        # ==============================================================
-        # PUBLICAR / PROCESAR RESULTADOS
-        # ==============================================================
-
-        self._publish_results(
-            fatigue_result,
-            attention_result
-        )
-
-    # ==================================================================
+    # ========================================================
     # DETECCIÓN DE PERSONAS
-    # ==================================================================
+    # ========================================================
 
-    def _detect_persons(self, frame):
+    def _detect_persons(
+            self,
+            frame: np.ndarray
+        ) -> list[dict]:
 
-        # TODO:
-        # Implementar detector de personas.
+        return self._person_detector.update(frame)
 
-        return []
+    # ========================================================
+    # RECORTE DEL OPERADOR
+    # ========================================================
 
-    # ==================================================================
-    # EXTRACCIÓN DE INFORMACIÓN FACIAL
-    # ==================================================================
-
-    def _extract_face_data(
+    def _crop_person(
         self,
-        frame,
+        frame: np.ndarray,
+        person
+    ) -> np.ndarray | None:
+        """
+        Obtiene el recorte correspondiente al operador.
+
+        Se agrega un margen alrededor del bounding box.
+        """
+
+        height, width = frame.shape[:2]
+
+        # ----------------------------------------------------
+        # Coordenadas
+        # ----------------------------------------------------
+
+        x1 = int(person.x1)
+        y1 = int(person.y1)
+
+        x2 = int(person.x2)
+        y2 = int(person.y2)
+
+        # ----------------------------------------------------
+        # Margen
+        # ----------------------------------------------------
+
+        margin_x = int(
+            0.10 * (x2 - x1)
+        )
+
+        margin_y = int(
+            0.10 * (y2 - y1)
+        )
+
+        x1 = max(
+            0,
+            x1 - margin_x
+        )
+
+        y1 = max(
+            0,
+            y1 - margin_y
+        )
+
+        x2 = min(
+            width,
+            x2 + margin_x
+        )
+
+        y2 = min(
+            height,
+            y2 + margin_y
+        )
+
+        if x2 <= x1 or y2 <= y1:
+
+            return None
+
+        return frame[
+            y1:y2,
+            x1:x2
+        ]
+
+    # ========================================================
+    # INFORMACIÓN DEL OPERADOR
+    # ========================================================
+
+    def _draw_person(
+        self,
+        frame: np.ndarray,
+        person
+    ):
+        """
+        Dibuja el bounding box y la información del operador.
+        """
+
+        x1 = int(person.x1)
+        y1 = int(person.y1)
+
+        x2 = int(person.x2)
+        y2 = int(person.y2)
+
+        # ----------------------------------------------------
+        # Bounding box
+        # ----------------------------------------------------
+
+        cv2.rectangle(
+            frame,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Texto
+        # ----------------------------------------------------
+
+        label = (
+            f"Operator "
+            f"ID:{person.track_id} "
+            f"{person.confidence:.2f}"
+        )
+
+        cv2.putText(
+            frame,
+            label,
+            (x1, max(y1 - 10, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2
+        )
+
+    # ========================================================
+    # INFORMACIÓN FACIAL
+    # ========================================================
+
+    def _draw_face_information(
+        self,
+        frame: np.ndarray,
+        face_result,
+        person
+    ):
+        """
+        Dibuja la información facial.
+
+        Los landmarks solamente se dibujan cuando:
+
+            visualizar == True
+            points_face == True
+        """
+
+        if not self._points_face:
+
+            return
+
+        if face_result.landmarks is None:
+
+            return
+
+        # ----------------------------------------------------
+        # Actualmente face_result.landmarks están expresados
+        # respecto al recorte del operador.
+        #
+        # Debemos trasladarlos nuevamente a las coordenadas
+        # originales de la imagen.
+        # ----------------------------------------------------
+
+        x_offset = int(person.x1)
+        y_offset = int(person.y1)
+
+        for point in face_result.landmarks:
+
+            x = int(point[0]) + x_offset
+            y = int(point[1]) + y_offset
+
+            cv2.circle(
+                frame,
+                (x, y),
+                2,
+                (0, 255, 255),
+                -1
+            )
+
+    # ========================================================
+    # SIN OPERADOR
+    # ========================================================
+
+    def _draw_no_operator(
+        self,
+        frame: np.ndarray
+    ):
+
+        cv2.putText(
+            frame,
+            "No operator detected",
+            (20, 35),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2
+        )
+
+    # ========================================================
+    # SIN ROSTRO
+    # ========================================================
+
+    def _draw_no_face(
+        self,
+        frame: np.ndarray,
         person
     ):
 
-        # TODO:
-        # Implementar extracción de landmarks
-        # e información facial.
+        x = int(person.x1)
 
-        return None
+        y = max(
+            int(person.y1) - 35,
+            20
+        )
 
-    # ==================================================================
-    # PUBLICACIÓN DE RESULTADOS
-    # ==================================================================
+        cv2.putText(
+            frame,
+            "Face not detected",
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 165, 255),
+            2
+        )
 
-    def _publish_results(
+    # ========================================================
+    # VISUALIZACIÓN
+    # ========================================================
+
+    def _show_frame(
         self,
-        fatigue_result,
-        attention_result
+        frame: np.ndarray
     ):
 
-        self.get_logger().debug(
-            f"Fatigue result: {fatigue_result}"
+        if not self._visualizar:
+
+            return
+
+        cv2.imshow(
+            "Operator RGB Camera",
+            frame
         )
 
-        self.get_logger().debug(
-            f"Attention result: {attention_result}"
-        )
+        key = cv2.waitKey(1) & 0xFF
 
-    # ==================================================================
-    # DESTRUCCIÓN DEL NODO
-    # ==================================================================
+        if key == ord("q") or key == 27:
+
+            self.get_logger().info(
+                "Cerrando visualización..."
+            )
+
+            self._visualizar = False
+
+            cv2.destroyWindow(
+                "Operator RGB Camera"
+            )
+
+    # ========================================================
+    # DESTRUCTOR
+    # ========================================================
 
     def destroy_node(self):
 
         self.get_logger().info(
-            "Shutting down operator fatigue node..."
+            "Liberando cámara..."
         )
-
-        # --------------------------------------------------------------
-        # Liberar cámara
-        # --------------------------------------------------------------
 
         if self._camera is not None:
 
             self._camera.release()
-            self._camera = None
-
-        # --------------------------------------------------------------
-        # Cerrar ventana de visualización
-        # --------------------------------------------------------------
 
         cv2.destroyAllWindows()
 
         super().destroy_node()
 
 
-# ======================================================================
+# ============================================================
 # MAIN
-# ======================================================================
+# ============================================================
 
 def main(args=None):
 
     rclpy.init(args=args)
 
-    node = OperatorFatigueNode()
+    node = None
 
     try:
+
+        node = OperatorFatigueNode()
 
         rclpy.spin(node)
 
@@ -494,12 +799,21 @@ def main(args=None):
 
         pass
 
+    except Exception as e:
+
+        print(
+            f"Error en OperatorFatigueNode: {e}"
+        )
+
     finally:
 
-        node.destroy_node()
+        if node is not None:
+
+            node.destroy_node()
 
         rclpy.shutdown()
 
 
 if __name__ == "__main__":
+
     main()
