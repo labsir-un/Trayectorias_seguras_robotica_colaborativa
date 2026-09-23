@@ -113,6 +113,22 @@ usbipd attach --wsl --busid <$BUSID>
 >[!IMPORTANT] 
 >Cada vez que se reinicie el WLS o se use el recurso compartido se debe verificar que este unido al WLS para su funcionamiento.
 
+En WLS verificar cual es el puerto USB al cual se conecto la cámara y a cual de los dos corresponde la transmisión de datos de video.
+
+```sh
+#Verificar la lista de conexiones USB
+v4l2-ctl --list-devices
+#Verificar en los puertos transferencias de datos
+for dev in /dev/video*; do echo "--- $dev ---"; v4l2-ctl --device=$dev --all | grep -i "Video Capture" && echo "-> ESTE TRANSMITE VIDEO"; done
+#Verificación de transmisión de video y formato
+v4l2-ctl --device=/dev/video0 --list-formats-ext && echo "===============" && v4l2-ctl --device=/dev/video1 --list-formats-ext
+```
+
+<div align="center">
+    <img src="https://imgur.com/sCI5lZ0.png" alt="Ej_Conexion_camraRGB">
+</div>
+
+
 ### Verificar IP de conexión para el socket
 
 ```sh
@@ -121,7 +137,7 @@ ip route show default
 ```
 
 <div align="center">
-    <img src="https://imgur.com/pVM85I8.png" alt="Ej_config_dispositivo_sub_compoartido">
+    <img src="https://imgur.com/pVM85I8.png" alt="Ej_IP_router">
 </div>
 
 >[!WARNING]

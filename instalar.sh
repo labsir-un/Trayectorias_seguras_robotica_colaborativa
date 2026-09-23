@@ -60,7 +60,7 @@ instalar_apt cowsay
 instalar_apt lolcat
 instalar_apt curl
 instalar_apt usbutils
-intalar_apt v4l-utils
+instalar_apt v4l-utils
 instalar_snap code --classic
 
 echo "=== [3/4] Instalando Kitty Terminal ==="
@@ -124,6 +124,12 @@ instalar_apt "ros-$ROS_DISTRO-ros2-control"
 instalar_apt "ros-$ROS_DISTRO-ros2-controllers"
 instalar_apt "ros-$ROS_DISTRO-controller-manager"
 instalar_apt "ros-$ROS_DISTRO-tf-transformations"
+instalar_apt "python3-pip"
+instalar_apt "python3-full"
+instalar_apt "ros-$ROS_DISTRO-cv-bridge"
+instalar_apt "ros-$ROS_DISTRO-vision-msgs"
+
+pip install ultralytics --break-system-packages
 
 cd $DIRECTORIO_ORIGEN
 
