@@ -130,6 +130,8 @@ instalar_apt "ros-$ROS_DISTRO-cv-bridge"
 instalar_apt "ros-$ROS_DISTRO-vision-msgs"
 
 pip install ultralytics --break-system-packages
+pip install mediapipe --break-system-packages
+pip install "numpy<2"
 
 cd $DIRECTORIO_ORIGEN
 

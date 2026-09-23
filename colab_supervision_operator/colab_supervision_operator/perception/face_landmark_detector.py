@@ -1,401 +1,697 @@
-"""
-face_landmark_detector.py
-
-Detector de puntos faciales para el sistema de percepción del operador.
-
-Responsabilidades:
-    - Detectar el rostro en una imagen RGB.
-    - Extraer landmarks faciales 2D.
-    - Proporcionar los puntos necesarios para estimar:
-        * Pose de cabeza.
-        * Apertura de ojos.
-        * Parpadeos.
-        * Características faciales.
-    - Proporcionar información para visualización.
-
-Este módulo NO realiza:
-    - Análisis de fatiga.
-    - Estimación de atención.
-    - Estimación de pose de cabeza.
-    - Análisis de expresiones.
-    - Seguimiento de personas.
-
-Esas responsabilidades corresponden a los módulos especializados.
-"""
+# ============================================================
+# face_landmark_detector.py
+# ============================================================
+#
+# Detector de landmarks faciales utilizando:
+#
+#   MediaPipe Tasks - Face Landmarker
+#
+# Compatible con:
+#
+#   MediaPipe 1.0.1
+#
+# Entrada:
+#
+#   Imagen BGR proveniente de OpenCV.
+#
+# Salida:
+#
+#   - Landmarks faciales
+#   - Bounding box facial
+#   - Puntos para HeadPoseEstimator
+#   - Puntos de ojos
+#   - Puntos de boca
+#   - Punto de nariz
+#
+# ============================================================
 
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
 
 import cv2
+import mediapipe as mp
 import numpy as np
+
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 
 # ============================================================
-# RESULTADOS
+# Resultado del detector
 # ============================================================
 
 @dataclass
 class FaceLandmarkResult:
-    """
-    Resultado de la detección de landmarks faciales.
-    """
+
+    # --------------------------------------------------------
+    # Estado
+    # --------------------------------------------------------
 
     face_detected: bool
 
-    # Todos los landmarks detectados.
-    landmarks: Optional[np.ndarray] = None
+    # --------------------------------------------------------
+    # Todos los landmarks
+    #
+    # Shape:
+    #
+    #   (N, 2)
+    #
+    # Coordenadas en píxeles.
+    # --------------------------------------------------------
 
-    # Bounding box del rostro: x1, y1, x2, y2
-    bbox: Optional[tuple[int, int, int, int]] = None
+    landmarks: np.ndarray | None
 
-    # Seis puntos principales utilizados por HeadPoseEstimator.
-    head_pose_points: Optional[np.ndarray] = None
+    # --------------------------------------------------------
+    # Bounding box facial
+    #
+    # (x1, y1, x2, y2)
+    # --------------------------------------------------------
 
-    # Puntos de los ojos.
-    left_eye_points: Optional[np.ndarray] = None
-    right_eye_points: Optional[np.ndarray] = None
+    bbox: tuple[int, int, int, int] | None
 
-    # Puntos de la boca.
-    mouth_points: Optional[np.ndarray] = None
+    # --------------------------------------------------------
+    # Puntos para HeadPoseEstimator
+    #
+    # Orden:
+    #
+    #   0 -> nariz
+    #   1 -> mentón
+    #   2 -> ojo izquierdo
+    #   3 -> ojo derecho
+    #   4 -> boca izquierda
+    #   5 -> boca derecha
+    #
+    # Shape:
+    #
+    #   (6, 2)
+    # --------------------------------------------------------
 
-    # Punto de referencia de la nariz.
-    nose_point: Optional[np.ndarray] = None
+    head_pose_points: np.ndarray | None
+
+    # --------------------------------------------------------
+    # Ojos
+    # --------------------------------------------------------
+
+    left_eye_points: np.ndarray | None
+
+    right_eye_points: np.ndarray | None
+
+    # --------------------------------------------------------
+    # Boca
+    # --------------------------------------------------------
+
+    mouth_points: np.ndarray | None
+
+    # --------------------------------------------------------
+    # Nariz
+    # --------------------------------------------------------
+
+    nose_point: tuple[int, int] | None
 
 
 # ============================================================
-# DETECTOR
+# Face Landmark Detector
 # ============================================================
 
 class FaceLandmarkDetector:
-    """
-    Detector de landmarks faciales.
 
-    La clase recibe una imagen RGB/BGR y devuelve las coordenadas
-    2D de los puntos faciales detectados.
-    """
+    # ========================================================
+    # ÍNDICES DE LANDMARKS
+    # ========================================================
+
+    # --------------------------------------------------------
+    # Nariz
+    # --------------------------------------------------------
+
+    NOSE_INDEX = 1
+
+    # --------------------------------------------------------
+    # Mentón
+    # --------------------------------------------------------
+
+    CHIN_INDEX = 152
+
+    # --------------------------------------------------------
+    # Centros de ojos
+    # --------------------------------------------------------
+
+    LEFT_EYE_CENTER_INDEX = 468
+
+    RIGHT_EYE_CENTER_INDEX = 473
+
+    # --------------------------------------------------------
+    # Boca
+    # --------------------------------------------------------
+
+    LEFT_MOUTH_INDEX = 61
+
+    RIGHT_MOUTH_INDEX = 291
+
+    # ========================================================
+    # LANDMARKS DE OJOS
+    # ========================================================
+
+    LEFT_EYE = [
+        33,
+        160,
+        158,
+        133,
+        153,
+        144,
+    ]
+
+    RIGHT_EYE = [
+        362,
+        385,
+        387,
+        263,
+        373,
+        380,
+    ]
+
+    # ========================================================
+    # LANDMARKS DE BOCA
+    # ========================================================
+
+    MOUTH = [
+        61,
+        146,
+        91,
+        181,
+        84,
+        17,
+        314,
+        405,
+        321,
+        375,
+        291,
+    ]
+
+    # ========================================================
+    # CONSTRUCTOR
+    # ========================================================
 
     def __init__(
         self,
+        model_path: str,
         min_detection_confidence: float = 0.5,
-        max_num_faces: int = 1,
+        min_tracking_confidence: float = 0.5,
     ):
 
-        self._min_detection_confidence = min_detection_confidence
-        self._max_num_faces = max_num_faces
-
         # ----------------------------------------------------
-        # Backend de detección
-        # ----------------------------------------------------
-        #
-        # Aquí se inicializa el backend de landmarks faciales.
-        #
-        # La implementación concreta puede ser MediaPipe,
-        # OpenCV u otro detector.
-        #
-        # Por ahora se deja preparado para integrarlo sin
-        # mezclarlo con los demás analizadores.
+        # Ruta del modelo
         # ----------------------------------------------------
 
-        self._detector = None
+        self._model_path = Path(
+            model_path
+        )
+
+        # ----------------------------------------------------
+        # Verificar existencia
+        # ----------------------------------------------------
+
+        if not self._model_path.exists():
+
+            raise FileNotFoundError(
+                "No se encontró el modelo "
+                f"Face Landmarker: "
+                f"{self._model_path}"
+            )
+
+        # ====================================================
+        # CONFIGURACIÓN MEDIAPIPE
+        # ====================================================
+
+        base_options = python.BaseOptions(
+            model_asset_path=str(
+                self._model_path
+            )
+        )
+
+        options = vision.FaceLandmarkerOptions(
+
+            base_options=base_options,
+
+            running_mode=(
+                vision.RunningMode.VIDEO
+            ),
+
+            num_faces=1,
+
+            min_face_detection_confidence=(
+                min_detection_confidence
+            ),
+
+            min_face_presence_confidence=(
+                min_detection_confidence
+            ),
+
+            min_tracking_confidence=(
+                min_tracking_confidence
+            ),
+
+            # No necesitamos estas salidas todavía.
+            output_face_blendshapes=False,
+
+            output_facial_transformation_matrixes=False,
+        )
+
+        # ====================================================
+        # CREAR FACE LANDMARKER
+        # ====================================================
+
+        self._detector = (
+            vision.FaceLandmarker.create_from_options(
+                options
+            )
+        )
+
+        # ====================================================
+        # TIMESTAMP
+        # ====================================================
+
+        self._timestamp_ms = 0
 
     # ========================================================
-    # API PRINCIPAL
+    # PROCESAR IMAGEN
     # ========================================================
 
-    def update(self, image: np.ndarray) -> FaceLandmarkResult:
-        """
-        Procesa una imagen y obtiene los landmarks faciales.
+    def update(
+        self,
+        image: np.ndarray,
+    ) -> FaceLandmarkResult:
 
-        Parameters
-        ----------
-        image : np.ndarray
-            Imagen BGR proveniente de OpenCV.
-
-        Returns
-        -------
-        FaceLandmarkResult
-            Resultado de la detección.
-        """
+        # ----------------------------------------------------
+        # Validar imagen
+        # ----------------------------------------------------
 
         if image is None:
-            return FaceLandmarkResult(
-                face_detected=False
-            )
+
+            return self._empty_result()
 
         if image.size == 0:
-            return FaceLandmarkResult(
-                face_detected=False
+
+            return self._empty_result()
+
+        # ----------------------------------------------------
+        # Dimensiones
+        # ----------------------------------------------------
+
+        height, width = image.shape[:2]
+
+        # ====================================================
+        # BGR -> RGB
+        # ====================================================
+
+        rgb_image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+
+        # ====================================================
+        # CREAR MP IMAGE
+        # ====================================================
+        #
+        # IMPORTANTE:
+        #
+        # MediaPipe 1.0.1 utiliza:
+        #
+        #   mp.Image
+        #
+        # NO:
+        #
+        #   vision.MPImage
+        #
+        # ====================================================
+
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb_image,
+        )
+
+        # ====================================================
+        # TIMESTAMP
+        # ====================================================
+
+        self._timestamp_ms += 33
+
+        # ====================================================
+        # DETECTAR LANDMARKS
+        # ====================================================
+
+        result = (
+            self._detector.detect_for_video(
+                mp_image,
+                self._timestamp_ms,
             )
+        )
 
-        # ----------------------------------------------------
-        # Detección del rostro
-        # ----------------------------------------------------
+        # ====================================================
+        # VERIFICAR RESULTADO
+        # ====================================================
 
-        detection_result = self._detect(image)
+        if not result.face_landmarks:
 
-        if detection_result is None:
-            return FaceLandmarkResult(
-                face_detected=False
+            return self._empty_result()
+
+        # ====================================================
+        # PRIMER ROSTRO
+        # ====================================================
+
+        face = result.face_landmarks[0]
+
+        # ====================================================
+        # LANDMARKS NORMALIZADOS -> PIXELES
+        # ====================================================
+
+        landmarks = np.array(
+            [
+                [
+                    landmark.x * width,
+                    landmark.y * height,
+                ]
+                for landmark in face
+            ],
+            dtype=np.float32,
+        )
+
+        # ====================================================
+        # BOUNDING BOX
+        # ====================================================
+
+        x_min = int(
+            np.min(
+                landmarks[:, 0]
             )
+        )
 
-        landmarks = detection_result["landmarks"]
-        bbox = detection_result["bbox"]
+        y_min = int(
+            np.min(
+                landmarks[:, 1]
+            )
+        )
+
+        x_max = int(
+            np.max(
+                landmarks[:, 0]
+            )
+        )
+
+        y_max = int(
+            np.max(
+                landmarks[:, 1]
+            )
+        )
 
         # ----------------------------------------------------
-        # Extraer grupos de puntos
+        # Limitar a la imagen
         # ----------------------------------------------------
 
-        head_pose_points = self._extract_head_pose_points(
-            landmarks
+        x_min = max(
+            0,
+            x_min
         )
 
-        left_eye_points = self._extract_left_eye(
-            landmarks
+        y_min = max(
+            0,
+            y_min
         )
 
-        right_eye_points = self._extract_right_eye(
-            landmarks
+        x_max = min(
+            width - 1,
+            x_max
         )
 
-        mouth_points = self._extract_mouth(
-            landmarks
+        y_max = min(
+            height - 1,
+            y_max
         )
 
-        nose_point = self._extract_nose(
-            landmarks
+        bbox = (
+            x_min,
+            y_min,
+            x_max,
+            y_max,
         )
+
+        # ====================================================
+        # HEAD POSE
+        # ====================================================
+
+        head_pose_points = np.array(
+            [
+                landmarks[
+                    self.NOSE_INDEX
+                ],
+
+                landmarks[
+                    self.CHIN_INDEX
+                ],
+
+                landmarks[
+                    self.LEFT_EYE_CENTER_INDEX
+                ],
+
+                landmarks[
+                    self.RIGHT_EYE_CENTER_INDEX
+                ],
+
+                landmarks[
+                    self.LEFT_MOUTH_INDEX
+                ],
+
+                landmarks[
+                    self.RIGHT_MOUTH_INDEX
+                ],
+            ],
+            dtype=np.float32,
+        )
+
+        # ====================================================
+        # OJO IZQUIERDO
+        # ====================================================
+
+        left_eye_points = landmarks[
+            self.LEFT_EYE
+        ]
+
+        # ====================================================
+        # OJO DERECHO
+        # ====================================================
+
+        right_eye_points = landmarks[
+            self.RIGHT_EYE
+        ]
+
+        # ====================================================
+        # BOCA
+        # ====================================================
+
+        mouth_points = landmarks[
+            self.MOUTH
+        ]
+
+        # ====================================================
+        # NARIZ
+        # ====================================================
+
+        nose = landmarks[
+            self.NOSE_INDEX
+        ]
+
+        nose_point = (
+            int(nose[0]),
+            int(nose[1]),
+        )
+
+        # ====================================================
+        # RESULTADO
+        # ====================================================
 
         return FaceLandmarkResult(
+
             face_detected=True,
+
             landmarks=landmarks,
+
             bbox=bbox,
-            head_pose_points=head_pose_points,
-            left_eye_points=left_eye_points,
-            right_eye_points=right_eye_points,
-            mouth_points=mouth_points,
+
+            head_pose_points=(
+                head_pose_points
+            ),
+
+            left_eye_points=(
+                left_eye_points
+            ),
+
+            right_eye_points=(
+                right_eye_points
+            ),
+
+            mouth_points=(
+                mouth_points
+            ),
+
             nose_point=nose_point,
         )
 
     # ========================================================
-    # DETECCIÓN
-    # ========================================================
-
-    def _detect(
-        self,
-        image: np.ndarray
-    ) -> Optional[dict]:
-        """
-        Ejecuta el detector de landmarks.
-
-        Esta función es el punto de integración con el backend
-        de visión artificial.
-        """
-
-        # ----------------------------------------------------
-        # TODO:
-        # Implementar el backend de landmarks.
-        # ----------------------------------------------------
-
-        return None
-
-    # ========================================================
-    # HEAD POSE
-    # ========================================================
-
-    def _extract_head_pose_points(
-        self,
-        landmarks: np.ndarray
-    ) -> Optional[np.ndarray]:
-        """
-        Extrae los seis puntos requeridos por HeadPoseEstimator.
-
-        Orden:
-
-            0 -> nariz
-            1 -> mentón
-            2 -> ojo izquierdo
-            3 -> ojo derecho
-            4 -> esquina izquierda de la boca
-            5 -> esquina derecha de la boca
-
-        Returns
-        -------
-        np.ndarray
-            Array de dimensiones (6, 2).
-        """
-
-        if landmarks is None:
-            return None
-
-        try:
-            nose = landmarks[0]
-            chin = landmarks[1]
-            left_eye = landmarks[2]
-            right_eye = landmarks[3]
-            left_mouth = landmarks[4]
-            right_mouth = landmarks[5]
-
-            points = np.array(
-                [
-                    nose,
-                    chin,
-                    left_eye,
-                    right_eye,
-                    left_mouth,
-                    right_mouth,
-                ],
-                dtype=np.float32,
-            )
-
-            return points
-
-        except (IndexError, TypeError):
-            return None
-
-    # ========================================================
-    # OJOS
-    # ========================================================
-
-    def _extract_left_eye(
-        self,
-        landmarks: np.ndarray
-    ) -> Optional[np.ndarray]:
-
-        if landmarks is None:
-            return None
-
-        # Se reemplazarán por los índices reales del backend.
-        return None
-
-    def _extract_right_eye(
-        self,
-        landmarks: np.ndarray
-    ) -> Optional[np.ndarray]:
-
-        if landmarks is None:
-            return None
-
-        # Se reemplazarán por los índices reales del backend.
-        return None
-
-    # ========================================================
-    # BOCA
-    # ========================================================
-
-    def _extract_mouth(
-        self,
-        landmarks: np.ndarray
-    ) -> Optional[np.ndarray]:
-
-        if landmarks is None:
-            return None
-
-        # Se reemplazarán por los índices reales del backend.
-        return None
-
-    # ========================================================
-    # NARIZ
-    # ========================================================
-
-    def _extract_nose(
-        self,
-        landmarks: np.ndarray
-    ) -> Optional[np.ndarray]:
-
-        if landmarks is None:
-            return None
-
-        # Se reemplazará por el índice real del backend.
-        return None
-
-    # ========================================================
-    # VISUALIZACIÓN
+    # DIBUJAR LANDMARKS
     # ========================================================
 
     def draw_landmarks(
         self,
         image: np.ndarray,
         result: FaceLandmarkResult,
-        draw_all: bool = False,
     ) -> np.ndarray:
-        """
-        Dibuja los landmarks sobre la imagen.
 
-        Parameters
-        ----------
-        image : np.ndarray
-            Imagen original.
+        # ----------------------------------------------------
+        # No hay rostro
+        # ----------------------------------------------------
 
-        result : FaceLandmarkResult
-            Resultado obtenido mediante update().
+        if not result.face_detected:
 
-        draw_all : bool
-            Si True, dibuja todos los landmarks.
-            Si False, dibuja únicamente los puntos principales.
+            return image
 
-        Returns
-        -------
-        np.ndarray
-            Imagen con la información visualizada.
-        """
+        # ----------------------------------------------------
+        # Copia
+        # ----------------------------------------------------
 
         output = image.copy()
 
-        if not result.face_detected:
+        # ----------------------------------------------------
+        # Verificar landmarks
+        # ----------------------------------------------------
+
+        if result.landmarks is None:
+
             return output
 
-        # ----------------------------------------------------
-        # Bounding box
-        # ----------------------------------------------------
+        # ====================================================
+        # TODOS LOS LANDMARKS
+        # ====================================================
 
-        if result.bbox is not None:
+        for point in result.landmarks:
 
-            x1, y1, x2, y2 = result.bbox
-
-            cv2.rectangle(
-                output,
-                (x1, y1),
-                (x2, y2),
-                (0, 255, 0),
-                2,
+            x = int(
+                point[0]
             )
 
-        # ----------------------------------------------------
-        # Todos los landmarks
-        # ----------------------------------------------------
+            y = int(
+                point[1]
+            )
 
-        if draw_all and result.landmarks is not None:
-
-            for point in result.landmarks:
-
-                x = int(point[0])
-                y = int(point[1])
+            if (
+                0 <= x < output.shape[1]
+                and
+                0 <= y < output.shape[0]
+            ):
 
                 cv2.circle(
                     output,
                     (x, y),
                     1,
-                    (0, 255, 255),
+                    (0, 255, 0),
                     -1,
                 )
 
-        # ----------------------------------------------------
-        # Puntos utilizados para HeadPoseEstimator
-        # ----------------------------------------------------
+        # ====================================================
+        # PUNTOS HEAD POSE
+        # ====================================================
 
         if result.head_pose_points is not None:
 
-            for point in result.head_pose_points:
+            for point in (
+                result.head_pose_points
+            ):
 
-                x = int(point[0])
-                y = int(point[1])
+                x = int(
+                    point[0]
+                )
+
+                y = int(
+                    point[1]
+                )
 
                 cv2.circle(
                     output,
                     (x, y),
-                    4,
+                    3,
                     (255, 0, 0),
                     -1,
                 )
 
+        # ====================================================
+        # NARIZ
+        # ====================================================
+
+        if result.nose_point is not None:
+
+            cv2.circle(
+                output,
+                result.nose_point,
+                4,
+                (0, 0, 255),
+                -1,
+            )
+
         return output
+
+    # ========================================================
+    # RESULTADO VACÍO
+    # ========================================================
+
+    @staticmethod
+    def _empty_result():
+
+        return FaceLandmarkResult(
+
+            face_detected=False,
+
+            landmarks=None,
+
+            bbox=None,
+
+            head_pose_points=None,
+
+            left_eye_points=None,
+
+            right_eye_points=None,
+
+            mouth_points=None,
+
+            nose_point=None,
+        )
+
+    # ========================================================
+    # CERRAR DETECTOR
+    # ========================================================
+
+    def close(self):
+
+        if (
+            hasattr(
+                self,
+                "_detector"
+            )
+            and
+            self._detector is not None
+        ):
+
+            self._detector.close()
+
+            self._detector = None
+
+    # ========================================================
+    # DESTRUCTOR
+    # ========================================================
+
+    def __del__(self):
+
+        try:
+
+            self.close()
+
+        except Exception:
+
+            pass
