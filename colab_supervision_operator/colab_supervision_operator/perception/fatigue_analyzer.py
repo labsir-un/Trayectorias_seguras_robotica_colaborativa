@@ -46,7 +46,7 @@ class FatigueAnalyzer():
             Facial expression detected by the expression analyzer.
     """
 
-    def __init__(self, eye_openness_threshold: float = 0.30, minimum_blink_frequency: float = 5.0, fatigue_expressions: list [set[str]] = [{"tired", "fatigued", "sleepy"}]) -> None:
+    def __init__(self, eye_openness_threshold: float = 0.30, minimum_blink_frequency: float = 5.0, fatigue_expressions: set[str] = {"tired", "fatigued", "sleepy"}) -> None:
 
         # --------------------------------------------------
         # Configuration parameters

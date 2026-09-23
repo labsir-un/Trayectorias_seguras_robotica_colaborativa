@@ -102,10 +102,36 @@ class OperatorFatigueNode(Node):
             self._camera = None
             return
 
+        self._camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, self._camera_width)
         self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT,self._camera_height)
         self._camera.set(cv2.CAP_PROP_FPS, self._camera_fps)
         self.get_logger().info("RGB camera opened successfully")
+
+        # --------------------------------------------------
+        # Read negotiated configuration
+        # --------------------------------------------------
+
+
+        width = self._camera.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = self._camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps = self._camera.get(cv2.CAP_PROP_FPS)
+        fourcc = int(self._camera.get(cv2.CAP_PROP_FOURCC))
+
+        fourcc_string = "".join(
+            [
+                chr((fourcc >> 0) & 0xFF),
+                chr((fourcc >> 8) & 0xFF),
+                chr((fourcc >> 16) & 0xFF),
+                chr((fourcc >> 24) & 0xFF),
+            ]
+        )
+
+        self.get_logger().info("RGB camera opened successfully")
+        self.get_logger().info(f"Camera device: {self._camera_device}")
+        self.get_logger().info(f"Camera resolution: {int(width)}x{int(height)}")
+        self.get_logger().info(f"Camera FPS: {fps:.1f}")
+        self.get_logger().info(f"Camera format: {fourcc_string}")
 
     # ======================================================
     # FRAME PROCESSING

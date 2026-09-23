@@ -15,8 +15,8 @@ setup(
     zip_safe=True,
     maintainer='jsdaleman',
     maintainer_email='jdaleman@unal.edu.co',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='package for colab supervision operator, supervision of states in robotics cells',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',
@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "fatigue_node = colab_supervision_operator.nodes.operator_fatigue_node:main",
+            "camera_node = colab_supervision_operator.nodes.camera:main",
         ],
     },
 )
