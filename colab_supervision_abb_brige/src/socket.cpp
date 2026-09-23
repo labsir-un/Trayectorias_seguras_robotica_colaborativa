@@ -59,8 +59,8 @@ public:
     // Constructor
     // --------------------------------------------------------
 
-    TCPSocketNode()
-    : Node("tcp_socket_node"),
+    TCPSocketNode(const std::string& node_name)
+    : Node(node_name),
       socket_fd_(-1),
       running_(true)
     {
