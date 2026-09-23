@@ -1,15 +1,20 @@
-"""
-ROS 2 node for operator fatigue analysis.
+#!/usr/bin/env python3
 
-This node acquires images from an RGB camera and coordinates
-the perception modules used to estimate operator fatigue
-and attention.
+"""
+Nodo ROS 2 para percepción del operador.
+
+Este nodo:
+- Captura imágenes desde una cámara RGB.
+- Permite visualizar la imagen mediante un parámetro.
+- Ejecuta los módulos de percepción del operador.
+- Analiza fatiga, parpadeo, expresión, postura de cabeza y atención.
 """
 
-from typing import Optional
 import cv2
+
 import rclpy
 from rclpy.node import Node
+
 from colab_supervision_operator.perception.fatigue_analyzer import FatigueAnalyzer
 from colab_supervision_operator.perception.blink_analyzer import BlinkAnalyzer
 from colab_supervision_operator.perception.expression_analyzer import ExpressionAnalyzer
@@ -19,289 +24,482 @@ from colab_supervision_operator.perception.person_tracker import PersonTracker
 
 
 class OperatorFatigueNode(Node):
-    """
-    ROS 2 node responsible for RGB-based operator perception.
 
-    The node acquires images from an RGB camera and coordinates
-    the perception modules responsible for:
-
-        - Person detection and tracking
-        - Eye openness
-        - Blink detection
-        - Facial expression
-        - Head pose
-        - Attention
-        - Fatigue
-
-    The node is responsible for ROS 2 communication and sensor
-    acquisition. Domain logic remains inside the perception
-    modules.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__("operator_fatigue_node")
 
-        # ==================================================
-        # PARAMETERS
-        # ==================================================
+        # ==============================================================
+        # PARÁMETROS
+        # ==============================================================
 
-        self.declare_parameter("camera_device", "/dev/video0")
-        self.declare_parameter("camera_width", 1280)
-        self.declare_parameter("camera_height", 720)
-        self.declare_parameter("camera_fps",30.0)
+        self.declare_parameter(
+            "camera_device",
+            "/dev/video0"
+        )
 
-        # ==================================================
-        # READ PARAMETERS
-        # ==================================================
+        self.declare_parameter(
+            "camera_width",
+            1280
+        )
 
-        self._camera_device = self.get_parameter("camera_device").value
-        self._camera_width = self.get_parameter("camera_width").value
-        self._camera_height = self.get_parameter("camera_height").value
-        self._camera_fps = self.get_parameter("camera_fps").value
+        self.declare_parameter(
+            "camera_height",
+            720
+        )
 
-        # ==================================================
-        # PERCEPTION MODULES
-        # ==================================================
+        self.declare_parameter(
+            "camera_fps",
+            30.0
+        )
 
-        self._person_tracker = PersonTracker()
+        # --------------------------------------------------------------
+        # Visualización de la cámara
+        #
+        # False -> no se crea ninguna ventana de OpenCV
+        # True  -> se muestra la imagen capturada
+        # --------------------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar",
+            False
+        )
+
+        # ==============================================================
+        # OBTENER PARÁMETROS
+        # ==============================================================
+
+        self._camera_device = self.get_parameter(
+            "camera_device"
+        ).value
+
+        self._camera_width = self.get_parameter(
+            "camera_width"
+        ).value
+
+        self._camera_height = self.get_parameter(
+            "camera_height"
+        ).value
+
+        self._camera_fps = self.get_parameter(
+            "camera_fps"
+        ).value
+
+        self._visualizar = self.get_parameter(
+            "visualizar"
+        ).value
+
+        # ==============================================================
+        # MÓDULOS DE PERCEPCIÓN
+        # ==============================================================
+
+        self._fatigue_analyzer = FatigueAnalyzer()
         self._blink_analyzer = BlinkAnalyzer()
         self._expression_analyzer = ExpressionAnalyzer()
         self._head_pose_estimator = HeadPoseEstimator()
         self._attention_analyzer = AttentionAnalyzer()
-        self._fatigue_analyzer = FatigueAnalyzer()
+        self._person_tracker = PersonTracker()
 
-        # ==================================================
-        # CAMERA
-        # ==================================================
+        # ==============================================================
+        # CÁMARA
+        # ==============================================================
 
-        self._camera: Optional[cv2.VideoCapture] = None
+        self._camera = None
+
         self._initialize_camera()
 
-        # ==================================================
-        # TIMER
-        # ==================================================
+        # ==============================================================
+        # TEMPORIZADOR
+        # ==============================================================
 
-        timer_period = 1.0 / self._camera_fps
-        self._timer = self.create_timer(timer_period, self._process_frame)
-        self.get_logger().info("Operator fatigue node initialized")
-        self.get_logger().info(f"Camera device: {self._camera_device}")
+        self._timer_period = 1.0 / self._camera_fps
 
-    # ======================================================
-    # CAMERA
-    # ======================================================
+        self._timer = self.create_timer(
+            self._timer_period,
+            self._process_frame
+        )
 
-    def _initialize_camera(self) -> None:
-        """
-        Initialize the RGB camera.
-        """
+        self.get_logger().info(
+            "Operator fatigue node initialized"
+        )
 
-        self._camera = cv2.VideoCapture(self._camera_device, cv2.CAP_V4L2)
+        self.get_logger().info(
+            f"Camera device: {self._camera_device}"
+        )
+
+        self.get_logger().info(
+            f"Visualization: {'enabled' if self._visualizar else 'disabled'}"
+        )
+
+    # ==================================================================
+    # INICIALIZACIÓN DE LA CÁMARA
+    # ==================================================================
+
+    def _initialize_camera(self):
+
+        self.get_logger().info(
+            "Initializing RGB camera..."
+        )
+
+        # --------------------------------------------------------------
+        # Abrir cámara utilizando V4L2
+        # --------------------------------------------------------------
+
+        self._camera = cv2.VideoCapture(
+            self._camera_device,
+            cv2.CAP_V4L2
+        )
 
         if not self._camera.isOpened():
-            self.get_logger().error(f"Unable to open RGB camera: {self._camera_device}")
+
+            self.get_logger().error(
+                f"Could not open camera: {self._camera_device}"
+            )
+
             self._camera = None
+
             return
 
-        self._camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, self._camera_width)
-        self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT,self._camera_height)
-        self._camera.set(cv2.CAP_PROP_FPS, self._camera_fps)
-        self.get_logger().info("RGB camera opened successfully")
+        # --------------------------------------------------------------
+        # Utilizar MJPG
+        # --------------------------------------------------------------
 
-        # --------------------------------------------------
-        # Read negotiated configuration
-        # --------------------------------------------------
+        self._camera.set(
+            cv2.CAP_PROP_FOURCC,
+            cv2.VideoWriter_fourcc(*"MJPG")
+        )
 
+        # --------------------------------------------------------------
+        # Resolución
+        # --------------------------------------------------------------
 
-        width = self._camera.get(cv2.CAP_PROP_FRAME_WIDTH)
-        height = self._camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps = self._camera.get(cv2.CAP_PROP_FPS)
-        fourcc = int(self._camera.get(cv2.CAP_PROP_FOURCC))
+        self._camera.set(
+            cv2.CAP_PROP_FRAME_WIDTH,
+            self._camera_width
+        )
+
+        self._camera.set(
+            cv2.CAP_PROP_FRAME_HEIGHT,
+            self._camera_height
+        )
+
+        # --------------------------------------------------------------
+        # FPS
+        # --------------------------------------------------------------
+
+        self._camera.set(
+            cv2.CAP_PROP_FPS,
+            self._camera_fps
+        )
+
+        # ==============================================================
+        # VERIFICAR CONFIGURACIÓN NEGOCIADA
+        # ==============================================================
+
+        actual_width = self._camera.get(
+            cv2.CAP_PROP_FRAME_WIDTH
+        )
+
+        actual_height = self._camera.get(
+            cv2.CAP_PROP_FRAME_HEIGHT
+        )
+
+        actual_fps = self._camera.get(
+            cv2.CAP_PROP_FPS
+        )
+
+        actual_fourcc = int(
+            self._camera.get(cv2.CAP_PROP_FOURCC)
+        )
 
         fourcc_string = "".join(
             [
-                chr((fourcc >> 0) & 0xFF),
-                chr((fourcc >> 8) & 0xFF),
-                chr((fourcc >> 16) & 0xFF),
-                chr((fourcc >> 24) & 0xFF),
+                chr(actual_fourcc & 0xFF),
+                chr((actual_fourcc >> 8) & 0xFF),
+                chr((actual_fourcc >> 16) & 0xFF),
+                chr((actual_fourcc >> 24) & 0xFF),
             ]
         )
 
-        self.get_logger().info("RGB camera opened successfully")
-        self.get_logger().info(f"Camera device: {self._camera_device}")
-        self.get_logger().info(f"Camera resolution: {int(width)}x{int(height)}")
-        self.get_logger().info(f"Camera FPS: {fps:.1f}")
-        self.get_logger().info(f"Camera format: {fourcc_string}")
+        self.get_logger().info(
+            "RGB camera opened successfully"
+        )
 
-    # ======================================================
-    # FRAME PROCESSING
-    # ======================================================
+        self.get_logger().info(
+            f"Resolution: {int(actual_width)}x{int(actual_height)}"
+        )
 
-    def _process_frame(self) -> None:
-        """
-        Acquire and process one RGB frame.
-        """
+        self.get_logger().info(
+            f"FPS: {actual_fps:.2f}"
+        )
+
+        self.get_logger().info(
+            f"Format: {fourcc_string}"
+        )
+
+        # ==============================================================
+        # PROBAR PRIMER FRAME
+        # ==============================================================
+
+        ret, frame = self._camera.read()
+
+        if not ret or frame is None:
+
+            self.get_logger().error(
+                "Camera opened but failed to capture first frame"
+            )
+
+            self._camera.release()
+            self._camera = None
+
+            return
+
+        self.get_logger().info(
+            f"First frame captured successfully: {frame.shape}"
+        )
+
+    # ==================================================================
+    # PROCESAMIENTO DE FRAME
+    # ==================================================================
+
+    def _process_frame(self):
 
         if self._camera is None:
-            self.get_logger().warning("RGB camera is not available")
             return
 
-        success, frame = (self._camera.read())
+        # --------------------------------------------------------------
+        # Capturar frame
+        # --------------------------------------------------------------
 
-        if not success:
-            self.get_logger().warning("Failed to read RGB frame")
+        ret, frame = self._camera.read()
+
+        if not ret or frame is None:
+
+            self.get_logger().warn(
+                "Failed to read RGB frame"
+            )
+
             return
 
-        # --------------------------------------------------
-        # Person detection
-        # --------------------------------------------------
+        # ==============================================================
+        # VISUALIZACIÓN
+        # ==============================================================
 
-        detections = self._detect_persons(frame)
-        person_result =  self._person_tracker.update(detections)
+        if self._visualizar:
 
-        # --------------------------------------------------
-        # No person detected
-        # --------------------------------------------------
+            cv2.imshow(
+                "Operator RGB Camera",
+                frame
+            )
 
-        if not person_result.person_detected:
-            self.get_logger().debug("No operator detected")
+            # ----------------------------------------------------------
+            # Tecla Q o ESC para cerrar la ventana
+            # ----------------------------------------------------------
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord("q") or key == 27:
+
+                self.get_logger().info(
+                    "Visualization window closed by user"
+                )
+
+                self._visualizar = False
+
+                cv2.destroyWindow(
+                    "Operator RGB Camera"
+                )
+
+        # ==============================================================
+        # DETECCIÓN DE PERSONAS
+        # ==============================================================
+
+        persons = self._detect_persons(frame)
+
+        tracked_persons = self._person_tracker.update(persons)
+
+        # --------------------------------------------------------------
+        # No hay personas detectadas
+        # --------------------------------------------------------------
+
+        if not tracked_persons:
+
+            self.get_logger().debug(
+                "No operator detected"
+            )
+
             return
 
-        # --------------------------------------------------
-        # Select operator
-        # --------------------------------------------------
+        # ==============================================================
+        # SELECCIONAR OPERADOR PRINCIPAL
+        # ==============================================================
 
-        operator = self._person_tracker.get_primary_person()
+        primary_person = self._person_tracker.get_primary_person()
 
-        if operator is None:
+        if primary_person is None:
+            self.get_logger().debug(
+                "No primary operator detected"
+            )
             return
 
-        # --------------------------------------------------
-        # Extract operator face
-        # --------------------------------------------------
+        # ==============================================================
+        # EXTRAER INFORMACIÓN FACIAL
+        # ==============================================================
 
-        face_data = self._extract_face_data(frame, operator)
+        face_data = self._extract_face_data(
+            frame,
+            primary_person
+        )
 
         if face_data is None:
             return
 
-        # --------------------------------------------------
-        # Blink analysis
-        # --------------------------------------------------
+        # ==============================================================
+        # ANÁLISIS DE PARPADEO
+        # ==============================================================
 
-        timestamp = self.get_clock().now().nanoseconds/ 1e9
-        blink_result = self._blink_analyzer.update(face_data["eye_openness"], timestamp)
-
-        # --------------------------------------------------
-        # Expression analysis
-        # --------------------------------------------------
-
-        expression_result = (self._expression_analyzer.update(
-            face_data["expression"],
-            face_data["expression_confidence"]
-        ))
-
-        # --------------------------------------------------
-        # Head pose
-        # --------------------------------------------------
-
-        head_pose_result = self._head_pose_estimator.update(face_data["image_points"],(
-            frame.shape[1],
-            frame.shape[0]
-        ))
-
-        if not head_pose_result.pose_valid:
-            return
-
-        # --------------------------------------------------
-        # Attention analysis
-        # --------------------------------------------------
-
-        attention_result = self._attention_analyzer.update(
-            head_pose_result.yaw,
-            head_pose_result.pitch,
-            head_pose_result.roll
+        blink_result = self._blink_analyzer.analyze(
+            face_data
         )
 
-        # --------------------------------------------------
-        # Fatigue analysis
-        # --------------------------------------------------
+        # ==============================================================
+        # ANÁLISIS DE EXPRESIÓN
+        # ==============================================================
 
-        fatigue_result = self._fatigue_analyzer.update(
-            blink_result.eye_openness,
-            blink_result.blink_frequency,
-            expression_result.expression
+        expression_result = self._expression_analyzer.analyze(
+            face_data
         )
 
-        # --------------------------------------------------
-        # Publish results
-        # --------------------------------------------------
+        # ==============================================================
+        # ESTIMACIÓN DE POSTURA DE CABEZA
+        # ==============================================================
+
+        head_pose_result = self._head_pose_estimator.estimate(
+            face_data
+        )
+
+        # ==============================================================
+        # ANÁLISIS DE ATENCIÓN
+        # ==============================================================
+
+        attention_result = self._attention_analyzer.analyze(
+            head_pose_result
+        )
+
+        # ==============================================================
+        # ANÁLISIS DE FATIGA
+        # ==============================================================
+
+        fatigue_result = self._fatigue_analyzer.analyze(
+            blink_result=blink_result,
+            expression_result=expression_result
+        )
+
+        # ==============================================================
+        # PUBLICAR / PROCESAR RESULTADOS
+        # ==============================================================
 
         self._publish_results(
             fatigue_result,
             attention_result
         )
 
-    # ======================================================
-    # PERCEPTION INTERFACE
-    # ======================================================
+    # ==================================================================
+    # DETECCIÓN DE PERSONAS
+    # ==================================================================
 
-    def _detect_persons(self, frame) -> list[dict]:
-        """
-        Detect persons in the RGB frame.
+    def _detect_persons(self, frame):
 
-        This method will be connected to the selected
-        perception model.
-        """
+        # TODO:
+        # Implementar detector de personas.
+
         return []
 
-    def _extract_face_data(self,frame, person) -> Optional[dict]:
-        """
-        Extract facial information from the detected operator.
+    # ==================================================================
+    # EXTRACCIÓN DE INFORMACIÓN FACIAL
+    # ==================================================================
 
-        This method will later be connected to the facial
-        landmark/expression perception pipeline.
-        """
+    def _extract_face_data(
+        self,
+        frame,
+        person
+    ):
+
+        # TODO:
+        # Implementar extracción de landmarks
+        # e información facial.
+
         return None
 
-    # ======================================================
-    # ROS 2 OUTPUT
-    # ======================================================
+    # ==================================================================
+    # PUBLICACIÓN DE RESULTADOS
+    # ==================================================================
 
-    def _publish_results(self, fatigue_result, attention_result) -> None:
-        """
-        Publish fatigue and attention results.
+    def _publish_results(
+        self,
+        fatigue_result,
+        attention_result
+    ):
 
-        ROS 2 publishers will be added once the custom
-        message definitions are established.
-        """
-        self.get_logger().debug(f"Fatigue: \"{fatigue_result.fatigue_level}, score={fatigue_result.fatigue_score:.2f}")
-        self.get_logger().debug(f"Attention: {attention_result.attention_target}, score={attention_result.attention_score:.2f}")
+        self.get_logger().debug(
+            f"Fatigue result: {fatigue_result}"
+        )
 
-    # ======================================================
-    # SHUTDOWN
-    # ======================================================
+        self.get_logger().debug(
+            f"Attention result: {attention_result}"
+        )
 
-    def destroy_node(self) -> None:
-        """
-        Release the camera before shutting down the node.
-        """
+    # ==================================================================
+    # DESTRUCCIÓN DEL NODO
+    # ==================================================================
+
+    def destroy_node(self):
+
+        self.get_logger().info(
+            "Shutting down operator fatigue node..."
+        )
+
+        # --------------------------------------------------------------
+        # Liberar cámara
+        # --------------------------------------------------------------
+
         if self._camera is not None:
+
             self._camera.release()
             self._camera = None
+
+        # --------------------------------------------------------------
+        # Cerrar ventana de visualización
+        # --------------------------------------------------------------
+
+        cv2.destroyAllWindows()
 
         super().destroy_node()
 
 
-def main(args=None) -> None:
+# ======================================================================
+# MAIN
+# ======================================================================
+
+def main(args=None):
 
     rclpy.init(args=args)
+
     node = OperatorFatigueNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+
+        rclpy.spin(node)
+
+    except KeyboardInterrupt:
+
+        pass
+
+    finally:
+
+        node.destroy_node()
+
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
-
     main()
