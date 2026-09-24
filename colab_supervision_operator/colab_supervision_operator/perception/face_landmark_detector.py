@@ -629,7 +629,10 @@ class FaceLandmarkDetector:
 
             cv2.circle(
                 output,
-                result.nose_point,
+                (
+                    int(round(float(result.nose_point[0]))),
+                    int(round(float(result.nose_point[1]))),
+                ),
                 4,
                 (0, 0, 255),
                 -1,
