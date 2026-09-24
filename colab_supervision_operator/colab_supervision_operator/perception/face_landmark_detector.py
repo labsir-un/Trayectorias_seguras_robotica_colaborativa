@@ -108,6 +108,21 @@ class FaceLandmarkResult:
 
     nose_point: tuple[int, int] | None
 
+    # --------------------------------------------------------
+    # Face Blendshapes
+    #
+    # Diccionario:
+    #
+    #   {
+    #       "mouthSmileLeft": 0.85,
+    #       "mouthSmileRight": 0.82,
+    #       ...
+    #   }
+    #
+    # Los valores están normalizados entre [0.0, 1.0].
+    # --------------------------------------------------------
+
+    face_blendshapes: dict[str, float] | None
 
 # ============================================================
 # Face Landmark Detector
@@ -251,7 +266,7 @@ class FaceLandmarkDetector:
             ),
 
             # No necesitamos estas salidas todavía.
-            output_face_blendshapes=False,
+            output_face_blendshapes=True,
 
             output_facial_transformation_matrixes=False,
         )
@@ -359,6 +374,22 @@ class FaceLandmarkDetector:
         # ====================================================
 
         face = result.face_landmarks[0]
+
+        # ====================================================
+        # FACE BLENDSHAPES
+        # ====================================================
+
+        face_blendshapes = {}
+
+        if result.face_blendshapes:
+
+            for category in result.face_blendshapes[0]:
+
+                if category.category_name is not None:
+
+                    face_blendshapes[
+                        category.category_name
+                    ] = float(category.score)
 
         # ====================================================
         # LANDMARKS NORMALIZADOS -> PIXELES
@@ -533,6 +564,8 @@ class FaceLandmarkDetector:
             ),
 
             nose_point=nose_point,
+
+            face_blendshapes=face_blendshapes,
         )
 
     # ========================================================
@@ -664,6 +697,8 @@ class FaceLandmarkDetector:
             mouth_points=None,
 
             nose_point=None,
+
+            face_blendshapes=None,
         )
 
     # ========================================================

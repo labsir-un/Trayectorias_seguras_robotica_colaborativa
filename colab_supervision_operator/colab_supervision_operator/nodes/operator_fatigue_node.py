@@ -33,10 +33,14 @@ from colab_supervision_operator.perception.person_detector import PersonDetector
 from ament_index_python.packages import get_package_share_directory
 
 
+# ============================================================
+# OPERATOR FATIGUE NODE
+# ============================================================
+
 class OperatorFatigueNode(Node):
 
     # ========================================================
-    # Constructor
+    # CONSTRUCTOR
     # ========================================================
 
     def __init__(self):
@@ -44,6 +48,10 @@ class OperatorFatigueNode(Node):
         super().__init__(
             "operator_fatigue_node"
         )
+
+        # ====================================================
+        # PACKAGE
+        # ====================================================
 
         package_share = get_package_share_directory(
             "colab_supervision_operator"
@@ -96,53 +104,13 @@ class OperatorFatigueNode(Node):
         )
 
         # ----------------------------------------------------
-        # Visualización Blink
-        # ----------------------------------------------------
-
-        self.declare_parameter(
-            "visualizar_blink",
-            False
-        )
-
-        # ----------------------------------------------------
-        # Visualización Head Pose
-        # ----------------------------------------------------
-
-        self.declare_parameter(
-            "visualizar_head_pose",
-            False
-        )
-
-        # ----------------------------------------------------
-        # Visualización ejes de pose
-        # ----------------------------------------------------
-
-        self.declare_parameter(
-            "visualizar_pose_axes",
-            False
-        )
-
-        # ----------------------------------------------------
-        # Visualización Attention
-        # ----------------------------------------------------
-
-        self.declare_parameter(
-            "visualizar_attention",
-            False
-        )
-
-        # ----------------------------------------------------
-        # Visualización ROI facial
+        # ROI facial
         # ----------------------------------------------------
 
         self.declare_parameter(
             "visualizar_face_roi",
             False
         )
-
-        # ----------------------------------------------------
-        # ROI facial
-        # ----------------------------------------------------
 
         self.declare_parameter(
             "face_roi_enabled",
@@ -170,8 +138,49 @@ class OperatorFatigueNode(Node):
         )
 
         # ----------------------------------------------------
-        # YOLO
+        # Blink
         # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_blink",
+            False
+        )
+
+        # ----------------------------------------------------
+        # Head Pose
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_head_pose",
+            False
+        )
+
+        self.declare_parameter(
+            "visualizar_pose_axes",
+            False
+        )
+
+        # ----------------------------------------------------
+        # Attention
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_attention",
+            False
+        )
+
+        # ----------------------------------------------------
+        # Expression
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_expression",
+            False
+        )
+
+        # ====================================================
+        # YOLO
+        # ====================================================
 
         self.declare_parameter(
             "yolo_model",
@@ -193,9 +202,9 @@ class OperatorFatigueNode(Node):
             ""
         )
 
-        # ----------------------------------------------------
-        # MediaPipe Face Landmarker
-        # ----------------------------------------------------
+        # ====================================================
+        # FACE LANDMARKER
+        # ====================================================
 
         self.declare_parameter(
             "face_landmarker_model",
@@ -213,8 +222,66 @@ class OperatorFatigueNode(Node):
         )
 
         # ====================================================
+        # EXPRESSION ANALYZER
+        # ====================================================
+
+        self.declare_parameter(
+            "expression_threshold",
+            0.30
+        )
+
+        self.declare_parameter(
+            "expression_sleepy_threshold",
+            0.35
+        )
+
+        self.declare_parameter(
+            "expression_tired_threshold",
+            0.35
+        )
+
+        self.declare_parameter(
+            "expression_fatigued_threshold",
+            0.45
+        )
+
+        self.declare_parameter(
+            "expression_yawn_threshold",
+            0.38
+        )
+
+        self.declare_parameter(
+            "expression_smoothing_alpha",
+            0.35
+        )
+
+        self.declare_parameter(
+            "expression_sleepy_frames",
+            6
+        )
+
+        self.declare_parameter(
+            "expression_tired_frames",
+            10
+        )
+
+        self.declare_parameter(
+            "expression_fatigued_frames",
+            20
+        )
+
+        self.declare_parameter(
+            "expression_yawn_frames",
+            8
+        )
+
+        # ====================================================
         # OBTENER PARÁMETROS
         # ====================================================
+
+        # ----------------------------------------------------
+        # Cámara
+        # ----------------------------------------------------
 
         self._camera_device = self.get_parameter(
             "camera_device"
@@ -232,12 +299,20 @@ class OperatorFatigueNode(Node):
             "camera_fps"
         ).value
 
+        # ----------------------------------------------------
+        # Visualización
+        # ----------------------------------------------------
+
         self._visualizar = self.get_parameter(
             "visualizar"
         ).value
 
         self._points_face = self.get_parameter(
             "points_face"
+        ).value
+
+        self._visualizar_face_roi = self.get_parameter(
+            "visualizar_face_roi"
         ).value
 
         self._visualizar_blink = self.get_parameter(
@@ -256,12 +331,12 @@ class OperatorFatigueNode(Node):
             "visualizar_attention"
         ).value
 
-        self._visualizar_face_roi = self.get_parameter(
-            "visualizar_face_roi"
+        self._visualizar_expression = self.get_parameter(
+            "visualizar_expression"
         ).value
 
         # ----------------------------------------------------
-        # ROI
+        # ROI facial
         # ----------------------------------------------------
 
         self._face_roi_enabled = self.get_parameter(
@@ -308,27 +383,67 @@ class OperatorFatigueNode(Node):
             yolo_device = None
 
         # ----------------------------------------------------
-        # MediaPipe
+        # Face Landmarker
         # ----------------------------------------------------
 
         face_model = self.get_parameter(
             "face_landmarker_model"
         ).value
 
-        face_detection_confidence = (
-            self.get_parameter(
-                "face_detection_confidence"
-            ).value
-        )
+        face_detection_confidence = self.get_parameter(
+            "face_detection_confidence"
+        ).value
 
-        face_tracking_confidence = (
-            self.get_parameter(
-                "face_tracking_confidence"
-            ).value
-        )
+        face_tracking_confidence = self.get_parameter(
+            "face_tracking_confidence"
+        ).value
+
+        # ----------------------------------------------------
+        # Expression Analyzer
+        # ----------------------------------------------------
+
+        expression_threshold = self.get_parameter(
+            "expression_threshold"
+        ).value
+
+        expression_sleepy_threshold = self.get_parameter(
+            "expression_sleepy_threshold"
+        ).value
+
+        expression_tired_threshold = self.get_parameter(
+            "expression_tired_threshold"
+        ).value
+
+        expression_fatigued_threshold = self.get_parameter(
+            "expression_fatigued_threshold"
+        ).value
+
+        expression_yawn_threshold = self.get_parameter(
+            "expression_yawn_threshold"
+        ).value
+
+        expression_smoothing_alpha = self.get_parameter(
+            "expression_smoothing_alpha"
+        ).value
+
+        expression_sleepy_frames = self.get_parameter(
+            "expression_sleepy_frames"
+        ).value
+
+        expression_tired_frames = self.get_parameter(
+            "expression_tired_frames"
+        ).value
+
+        expression_fatigued_frames = self.get_parameter(
+            "expression_fatigued_frames"
+        ).value
+
+        expression_yawn_frames = self.get_parameter(
+            "expression_yawn_frames"
+        ).value
 
         # ====================================================
-        # INFORMACIÓN DE INICIALIZACIÓN
+        # INFORMACIÓN DE INICIO
         # ====================================================
 
         self.get_logger().info(
@@ -344,69 +459,46 @@ class OperatorFatigueNode(Node):
         )
 
         self.get_logger().info(
-            "Resolución solicitada: "
+            f"Resolución: "
             f"{self._camera_width}x"
             f"{self._camera_height}"
         )
 
         self.get_logger().info(
-            f"FPS solicitado: {self._camera_fps}"
+            f"FPS: {self._camera_fps}"
         )
 
         self.get_logger().info(
-            f"Visualización: {self._visualizar}"
+            f"YOLO: {yolo_model}"
         )
 
         self.get_logger().info(
-            f"Landmarks faciales: {self._points_face}"
+            f"Face Landmarker: {face_model}"
         )
 
         self.get_logger().info(
-            f"Visualización Blink: "
-            f"{self._visualizar_blink}"
+            f"Expression threshold: "
+            f"{expression_threshold:.2f}"
         )
 
         self.get_logger().info(
-            f"Visualización Head Pose: "
-            f"{self._visualizar_head_pose}"
+            f"Sleepy threshold: "
+            f"{expression_sleepy_threshold:.2f}"
         )
 
         self.get_logger().info(
-            f"Visualización Pose Axes: "
-            f"{self._visualizar_pose_axes}"
+            f"Tired threshold: "
+            f"{expression_tired_threshold:.2f}"
         )
 
         self.get_logger().info(
-            f"Visualización Attention: "
-            f"{self._visualizar_attention}"
+            f"Fatigued threshold: "
+            f"{expression_fatigued_threshold:.2f}"
         )
 
         self.get_logger().info(
-            f"Visualización Face ROI: "
-            f"{self._visualizar_face_roi}"
-        )
-
-        self.get_logger().info(
-            f"Face ROI habilitada: "
-            f"{self._face_roi_enabled}"
-        )
-
-        self.get_logger().info(
-            f"Face ROI upper ratio: "
-            f"{self._face_roi_upper_ratio}"
-        )
-
-        self.get_logger().info(
-            f"Face ROI target size: "
-            f"{self._face_roi_target_size}"
-        )
-
-        self.get_logger().info(
-            f"Modelo YOLO: {yolo_model}"
-        )
-
-        self.get_logger().info(
-            f"Modelo Face Landmarker: {face_model}"
+            f"Yawn threshold: "
+            f"{expression_yawn_threshold:.2f}"
         )
 
         self.get_logger().info(
@@ -422,7 +514,7 @@ class OperatorFatigueNode(Node):
         self._initialize_camera()
 
         # ====================================================
-        # DETECTOR DE PERSONAS
+        # PERSON DETECTOR
         # ====================================================
 
         self.get_logger().info(
@@ -452,12 +544,8 @@ class OperatorFatigueNode(Node):
         )
 
         # ====================================================
-        # TRACKER
+        # PERSON TRACKER
         # ====================================================
-
-        self.get_logger().info(
-            "Inicializando PersonTracker..."
-        )
 
         self._person_tracker = PersonTracker()
 
@@ -506,10 +594,6 @@ class OperatorFatigueNode(Node):
         # BLINK ANALYZER
         # ====================================================
 
-        self.get_logger().info(
-            "Inicializando BlinkAnalyzer..."
-        )
-
         self._blink_analyzer = BlinkAnalyzer(
             eye_closed_threshold=0.23,
             min_closed_frames=1,
@@ -528,11 +612,9 @@ class OperatorFatigueNode(Node):
         # HEAD POSE ESTIMATOR
         # ====================================================
 
-        self.get_logger().info(
-            "Inicializando HeadPoseEstimator..."
+        self._head_pose_estimator = (
+            HeadPoseEstimator()
         )
-
-        self._head_pose_estimator = HeadPoseEstimator()
 
         self.get_logger().info(
             "HeadPoseEstimator inicializado correctamente."
@@ -542,22 +624,75 @@ class OperatorFatigueNode(Node):
         # ATTENTION ANALYZER
         # ====================================================
 
-        self.get_logger().info(
-            "Inicializando AttentionAnalyzer..."
+        self._attention_analyzer = (
+            AttentionAnalyzer()
         )
-
-        self._attention_analyzer = AttentionAnalyzer()
 
         self.get_logger().info(
             "AttentionAnalyzer inicializado correctamente."
         )
 
         # ====================================================
+        # EXPRESSION ANALYZER
+        # ====================================================
+
+        self._expression_analyzer = (
+            ExpressionAnalyzer(
+
+                expression_threshold=(
+                    expression_threshold
+                ),
+
+                sleepy_threshold=(
+                    expression_sleepy_threshold
+                ),
+
+                tired_threshold=(
+                    expression_tired_threshold
+                ),
+
+                fatigued_threshold=(
+                    expression_fatigued_threshold
+                ),
+
+                yawn_threshold=(
+                    expression_yawn_threshold
+                ),
+
+                smoothing_alpha=(
+                    expression_smoothing_alpha
+                ),
+
+                sleepy_frames=(
+                    expression_sleepy_frames
+                ),
+
+                tired_frames=(
+                    expression_tired_frames
+                ),
+
+                fatigued_frames=(
+                    expression_fatigued_frames
+                ),
+
+                yawn_frames=(
+                    expression_yawn_frames
+                ),
+            )
+        )
+
+        self.get_logger().info(
+            "ExpressionAnalyzer "
+            "inicializado correctamente."
+        )
+
+        # ====================================================
         # TIMER
         # ====================================================
 
-        timer_period = 1.0 / float(
-            self._camera_fps
+        timer_period = (
+            1.0 /
+            float(self._camera_fps)
         )
 
         self._timer = self.create_timer(
@@ -595,12 +730,20 @@ class OperatorFatigueNode(Node):
                 f"{self._camera_device}"
             )
 
+        # ----------------------------------------------------
+        # MJPG
+        # ----------------------------------------------------
+
         self._camera.set(
             cv2.CAP_PROP_FOURCC,
             cv2.VideoWriter_fourcc(
                 *"MJPG"
             )
         )
+
+        # ----------------------------------------------------
+        # Resolución
+        # ----------------------------------------------------
 
         self._camera.set(
             cv2.CAP_PROP_FRAME_WIDTH,
@@ -612,10 +755,18 @@ class OperatorFatigueNode(Node):
             self._camera_height
         )
 
+        # ----------------------------------------------------
+        # FPS
+        # ----------------------------------------------------
+
         self._camera.set(
             cv2.CAP_PROP_FPS,
             self._camera_fps
         )
+
+        # ----------------------------------------------------
+        # Configuración real
+        # ----------------------------------------------------
 
         actual_width = int(
             self._camera.get(
@@ -654,7 +805,8 @@ class OperatorFatigueNode(Node):
 
         self.get_logger().info(
             f"  Resolución: "
-            f"{actual_width}x{actual_height}"
+            f"{actual_width}x"
+            f"{actual_height}"
         )
 
         self.get_logger().info(
@@ -662,10 +814,17 @@ class OperatorFatigueNode(Node):
         )
 
         self.get_logger().info(
-            f"  Formato: {fourcc_string}"
+            f"  Formato: "
+            f"{fourcc_string}"
         )
 
-        ret, frame = self._camera.read()
+        # ----------------------------------------------------
+        # Primer frame
+        # ----------------------------------------------------
+
+        ret, frame = (
+            self._camera.read()
+        )
 
         if not ret or frame is None:
 
@@ -692,7 +851,13 @@ class OperatorFatigueNode(Node):
         if self._camera is None:
             return
 
-        ret, frame = self._camera.read()
+        # ----------------------------------------------------
+        # Capturar frame
+        # ----------------------------------------------------
+
+        ret, frame = (
+            self._camera.read()
+        )
 
         if not ret or frame is None:
 
@@ -717,7 +882,8 @@ class OperatorFatigueNode(Node):
         except Exception as e:
 
             self.get_logger().error(
-                f"Error en PersonDetector: {e}"
+                "Error en PersonDetector: "
+                f"{e}"
             )
 
             self._show_frame(
@@ -741,7 +907,8 @@ class OperatorFatigueNode(Node):
         except Exception as e:
 
             self.get_logger().error(
-                f"Error en PersonTracker: {e}"
+                "Error en PersonTracker: "
+                f"{e}"
             )
 
             self._show_frame(
@@ -751,12 +918,10 @@ class OperatorFatigueNode(Node):
             return
 
         # ====================================================
-        # VERIFICAR OPERADOR
+        # NO HAY OPERADOR
         # ====================================================
 
         if not tracking_result.person_detected:
-
-            self._blink_analyzer.reset()
 
             self._draw_no_operator(
                 display_frame
@@ -769,7 +934,7 @@ class OperatorFatigueNode(Node):
             return
 
         # ====================================================
-        # OBTENER OPERADOR PRINCIPAL
+        # OPERADOR PRINCIPAL
         # ====================================================
 
         primary_person = (
@@ -777,8 +942,6 @@ class OperatorFatigueNode(Node):
         )
 
         if primary_person is None:
-
-            self._blink_analyzer.reset()
 
             self._draw_no_operator(
                 display_frame
@@ -803,55 +966,34 @@ class OperatorFatigueNode(Node):
         # EXTRAER ROI FACIAL
         # ====================================================
 
+        face_input = frame
+
+        roi_transform = None
+
         if self._face_roi_enabled:
 
-            face_input, roi_transform = (
-                self._extract_face_roi(
-                    frame,
-                    primary_person
-                )
-            )
-
-        else:
-
-            face_input = frame
-
-            roi_transform = {
-                "offset_x": 0.0,
-                "offset_y": 0.0,
-                "scale_x": 1.0,
-                "scale_y": 1.0,
-            }
-
-        if face_input is None:
-
-            self._blink_analyzer.reset()
-
-            self._draw_no_face(
-                display_frame,
+            roi_data = self._extract_face_roi(
+                frame,
                 primary_person
             )
 
-            self._show_frame(
-                display_frame
-            )
+            if roi_data is not None:
 
-            return
+                face_input = roi_data["image"]
 
-        # ====================================================
-        # VISUALIZAR ROI
-        # ====================================================
+                roi_transform = (
+                    roi_data["transform"]
+                )
 
-        if self._visualizar_face_roi:
+                if self._visualizar_face_roi:
 
-            self._draw_face_roi(
-                display_frame,
-                roi_transform,
-                face_input
-            )
+                    self._draw_face_roi(
+                        display_frame,
+                        roi_data
+                    )
 
         # ====================================================
-        # FACE LANDMARKS
+        # FACE LANDMARK DETECTOR
         # ====================================================
 
         try:
@@ -862,13 +1004,6 @@ class OperatorFatigueNode(Node):
                 )
             )
 
-            face_result = (
-                self._restore_face_coordinates(
-                    face_result,
-                    roi_transform
-                )
-            )
-
         except Exception as e:
 
             self.get_logger().error(
@@ -876,7 +1011,32 @@ class OperatorFatigueNode(Node):
                 f"{e}"
             )
 
-            self._blink_analyzer.reset()
+            self._show_frame(
+                display_frame
+            )
+
+            return
+
+        # ====================================================
+        # RESTAURAR COORDENADAS
+        # ====================================================
+
+        if (
+            face_result.face_detected
+            and
+            roi_transform is not None
+        ):
+
+            self._restore_face_coordinates(
+                face_result,
+                roi_transform
+            )
+
+        # ====================================================
+        # NO HAY ROSTRO
+        # ====================================================
+
+        if not face_result.face_detected:
 
             self._draw_no_face(
                 display_frame,
@@ -890,21 +1050,55 @@ class OperatorFatigueNode(Node):
             return
 
         # ====================================================
-        # ROSTRO DETECTADO
+        # DIBUJAR INFORMACIÓN FACIAL
         # ====================================================
 
-        if face_result.face_detected:
+        self._draw_face_information(
+            display_frame,
+            face_result
+        )
 
-            # =================================================
-            # BLINK ANALYZER
-            # =================================================
+        # ====================================================
+        # BLINK ANALYZER
+        # ====================================================
+
+        blink_result = None
+
+        if (
+            face_result.left_eye_points is not None
+            and
+            face_result.right_eye_points is not None
+        ):
 
             try:
 
+                timestamp = (
+                    self.get_clock()
+                    .now()
+                    .nanoseconds
+                    /
+                    1e9
+                )
+
+                # El BlinkAnalyzer utiliza el valor
+                # de apertura ocular calculado a partir
+                # de los landmarks de los ojos.
+                #
+                # En esta integración calculamos EAR
+                # directamente para mantener compatibilidad
+                # con el analyzer validado anteriormente.
+
+                eye_openness = (
+                    self._calculate_eye_openness(
+                        face_result.left_eye_points,
+                        face_result.right_eye_points
+                    )
+                )
+
                 blink_result = (
                     self._blink_analyzer.update(
-                        face_result.left_eye_points,
-                        face_result.right_eye_points,
+                        eye_openness,
+                        timestamp
                     )
                 )
 
@@ -915,11 +1109,16 @@ class OperatorFatigueNode(Node):
                     f"{e}"
                 )
 
-                blink_result = None
+        # ====================================================
+        # HEAD POSE
+        # ====================================================
 
-            # =================================================
-            # HEAD POSE ESTIMATOR
-            # =================================================
+        head_pose_result = None
+
+        if (
+            face_result.head_pose_points
+            is not None
+        ):
 
             try:
 
@@ -940,112 +1139,160 @@ class OperatorFatigueNode(Node):
                     f"{e}"
                 )
 
-                head_pose_result = None
+        # ====================================================
+        # ATTENTION
+        # ====================================================
 
-            # =================================================
-            # ATTENTION ANALYZER
-            # =================================================
+        attention_result = None
 
-            attention_result = None
+        if (
+            head_pose_result is not None
+            and
+            head_pose_result.pose_valid
+        ):
 
-            if (
-                head_pose_result is not None
-                and head_pose_result.pose_valid
-            ):
+            try:
 
-                try:
-
-                    attention_result = (
-                        self._attention_analyzer.update(
-                            head_pose_result.yaw,
-                            head_pose_result.pitch,
-                            head_pose_result.roll,
-                        )
+                attention_result = (
+                    self._attention_analyzer.update(
+                        head_pose_result.yaw,
+                        head_pose_result.pitch,
+                        head_pose_result.roll
                     )
+                )
 
-                except Exception as e:
+            except Exception as e:
 
-                    self.get_logger().error(
-                        "Error en AttentionAnalyzer: "
-                        f"{e}"
+                self.get_logger().error(
+                    "Error en AttentionAnalyzer: "
+                    f"{e}"
+                )
+
+        # ====================================================
+        # EXPRESSION ANALYZER
+        # ====================================================
+
+        expression_result = None
+
+        if (
+            face_result.face_blendshapes is not None
+            and
+            face_result.face_blendshapes
+        ):
+
+            try:
+
+                expression_result = (
+                    self._expression_analyzer.update(
+                        face_result.face_blendshapes
                     )
+                )
 
-            # =================================================
-            # INFORMACIÓN FACIAL
-            # =================================================
+            except Exception as e:
 
-            self._draw_face_information(
-                display_frame,
-                face_result,
-                primary_person
-            )
+                self.get_logger().error(
+                    "Error en ExpressionAnalyzer: "
+                    f"{e}"
+                )
 
-            # =================================================
-            # INFORMACIÓN BLINK
-            # =================================================
+        # ====================================================
+        # VISUALIZACIÓN BLINK
+        # ====================================================
 
-            if (
-                self._visualizar_blink
-                and blink_result is not None
-                and blink_result.valid
-            ):
+        if (
+            self._visualizar_blink
+            and
+            blink_result is not None
+        ):
 
+            display_frame = (
                 self._draw_blink_information(
                     display_frame,
                     blink_result
                 )
+            )
 
-            # =================================================
-            # INFORMACIÓN HEAD POSE
-            # =================================================
+        # ====================================================
+        # VISUALIZACIÓN HEAD POSE
+        # ====================================================
 
-            if (
-                self._visualizar_head_pose
-                and head_pose_result is not None
-                and head_pose_result.pose_valid
-            ):
+        if (
+            self._visualizar_head_pose
+            and
+            head_pose_result is not None
+        ):
 
+            display_frame = (
                 self._draw_head_pose_information(
                     display_frame,
                     head_pose_result
                 )
+            )
 
-            # =================================================
-            # EJES 3D DE POSE
-            # =================================================
+        # ====================================================
+        # EJES HEAD POSE
+        # ====================================================
 
-            if (
-                self._visualizar_pose_axes
-                and head_pose_result is not None
-                and head_pose_result.pose_valid
-            ):
+        if (
+            self._visualizar_pose_axes
+            and
+            head_pose_result is not None
+            and
+            head_pose_result.pose_valid
+        ):
 
-                self._head_pose_estimator.draw_pose_axes(
-                    display_frame,
-                    head_pose_result
+            try:
+
+                display_frame = (
+                    self._head_pose_estimator.draw_pose_axes(
+                        display_frame,
+                        head_pose_result
+                    )
                 )
 
-            # =================================================
-            # INFORMACIÓN ATTENTION
-            # =================================================
+            except AttributeError:
 
-            if (
-                self._visualizar_attention
-                and attention_result is not None
-            ):
+                pass
 
+            except Exception as e:
+
+                self.get_logger().warning(
+                    "Error dibujando ejes de pose: "
+                    f"{e}"
+                )
+
+        # ====================================================
+        # VISUALIZACIÓN ATTENTION
+        # ====================================================
+
+        if (
+            self._visualizar_attention
+            and
+            attention_result is not None
+        ):
+
+            display_frame = (
                 self._draw_attention_information(
                     display_frame,
                     attention_result
                 )
+            )
 
-        else:
+        # ====================================================
+        # VISUALIZACIÓN EXPRESSION
+        # ====================================================
 
-            self._blink_analyzer.reset()
+        if (
+            self._visualizar_expression
+            and
+            expression_result is not None
+        ):
 
-            self._draw_no_face(
-                display_frame,
-                primary_person
+            display_frame = (
+                self._draw_expression_information(
+                    display_frame,
+                    expression_result
+                )
             )
 
         # ====================================================
@@ -1078,203 +1325,245 @@ class OperatorFatigueNode(Node):
         frame,
         person
     ):
-        """
-        Extrae la región superior del operador y la reescala
-        para mejorar la detección facial a distancia.
-        """
 
-        frame_height, frame_width = frame.shape[:2]
+        height, width = (
+            frame.shape[:2]
+        )
 
         # ----------------------------------------------------
         # Bounding box del operador
         # ----------------------------------------------------
 
-        x1 = int(person.x1)
-        y1 = int(person.y1)
-
-        x2 = int(person.x2)
-        y2 = int(person.y2)
-
-        x1 = max(
-            0,
-            min(x1, frame_width - 1)
+        x1 = int(
+            max(
+                0,
+                person.x1
+            )
         )
 
-        y1 = max(
-            0,
-            min(y1, frame_height - 1)
+        y1 = int(
+            max(
+                0,
+                person.y1
+            )
         )
 
-        x2 = max(
-            0,
-            min(x2, frame_width)
+        x2 = int(
+            min(
+                width - 1,
+                person.x2
+            )
         )
 
-        y2 = max(
-            0,
-            min(y2, frame_height)
+        y2 = int(
+            min(
+                height - 1,
+                person.y2
+            )
         )
 
-        if x2 <= x1 or y2 <= y1:
+        if (
+            x2 <= x1
+            or
+            y2 <= y1
+        ):
 
-            return None, None
+            return None
 
-        person_width = x2 - x1
-        person_height = y2 - y1
+        person_width = (
+            x2 - x1
+        )
+
+        person_height = (
+            y2 - y1
+        )
 
         # ----------------------------------------------------
         # Región superior
         # ----------------------------------------------------
 
-        upper_ratio = np.clip(
-            float(self._face_roi_upper_ratio),
-            0.20,
-            1.00
+        roi_height = int(
+            person_height
+            *
+            float(
+                self._face_roi_upper_ratio
+            )
         )
 
-        roi_y2 = (
-            y1
-            + int(
-                person_height
-                * upper_ratio
-            )
+        roi_height = max(
+            1,
+            roi_height
+        )
+
+        face_y1 = y1
+
+        face_y2 = min(
+            y2,
+            y1 + roi_height
         )
 
         # ----------------------------------------------------
         # Padding
         # ----------------------------------------------------
 
-        padding_x = int(
+        pad_x = int(
             person_width
-            * max(
-                0.0,
-                float(
-                    self._face_roi_padding_x
-                )
+            *
+            float(
+                self._face_roi_padding_x
             )
         )
 
-        padding_y = int(
+        pad_y = int(
             person_height
-            * max(
-                0.0,
-                float(
-                    self._face_roi_padding_y
-                )
+            *
+            float(
+                self._face_roi_padding_y
             )
         )
 
         roi_x1 = max(
             0,
-            x1 - padding_x
+            x1 - pad_x
         )
 
         roi_y1 = max(
             0,
-            y1 - padding_y
+            face_y1 - pad_y
         )
 
         roi_x2 = min(
-            frame_width,
-            x2 + padding_x
+            width,
+            x2 + pad_x
         )
 
         roi_y2 = min(
-            frame_height,
-            roi_y2 + padding_y
+            height,
+            face_y2 + pad_y
         )
 
-        if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
+        if (
+            roi_x2 <= roi_x1
+            or
+            roi_y2 <= roi_y1
+        ):
 
-            return None, None
+            return None
 
         # ----------------------------------------------------
-        # Crop
+        # Recortar
         # ----------------------------------------------------
 
-        crop = frame[
+        roi = frame[
             roi_y1:roi_y2,
             roi_x1:roi_x2
         ]
 
-        if crop.size == 0:
+        if roi.size == 0:
 
-            return None, None
+            return None
 
-        crop_height, crop_width = (
-            crop.shape[:2]
+        roi_height_pixels, roi_width_pixels = (
+            roi.shape[:2]
         )
 
         # ----------------------------------------------------
-        # Reescalado
+        # Escalado
         # ----------------------------------------------------
 
-        target_size = max(
-            int(
-                self._face_roi_target_size
-            ),
-            128
+        target_size = int(
+            self._face_roi_target_size
         )
 
         short_side = min(
-            crop_width,
-            crop_height
+            roi_width_pixels,
+            roi_height_pixels
         )
 
-        if short_side <= 0:
+        scale = 1.0
 
-            return None, None
+        if short_side < target_size:
 
-        scale = (
-            target_size
-            / float(short_side)
-        )
-
-        # No reducir una ROI que ya tenga
-        # suficiente resolución.
-        scale = max(
-            1.0,
-            scale
-        )
+            scale = (
+                float(target_size)
+                /
+                float(short_side)
+            )
 
         new_width = max(
             1,
             int(
-                crop_width * scale
+                round(
+                    roi_width_pixels
+                    *
+                    scale
+                )
             )
         )
 
         new_height = max(
             1,
             int(
-                crop_height * scale
+                round(
+                    roi_height_pixels
+                    *
+                    scale
+                )
             )
         )
 
-        resized_crop = cv2.resize(
-            crop,
-            (
-                new_width,
-                new_height
-            ),
-            interpolation=cv2.INTER_CUBIC
+        if (
+            new_width != roi_width_pixels
+            or
+            new_height != roi_height_pixels
+        ):
+
+            roi_resized = cv2.resize(
+                roi,
+                (
+                    new_width,
+                    new_height
+                ),
+                interpolation=cv2.INTER_CUBIC
+            )
+
+        else:
+
+            roi_resized = roi
+
+        # ----------------------------------------------------
+        # Transformación
+        # ----------------------------------------------------
+
+        scale_x = (
+            float(new_width)
+            /
+            float(roi_width_pixels)
+        )
+
+        scale_y = (
+            float(new_height)
+            /
+            float(roi_height_pixels)
         )
 
         transform = {
             "offset_x": float(roi_x1),
             "offset_y": float(roi_y1),
-            "scale_x": float(scale),
-            "scale_y": float(scale),
-            "roi_x1": int(roi_x1),
-            "roi_y1": int(roi_y1),
-            "roi_x2": int(roi_x2),
-            "roi_y2": int(roi_y2),
+            "scale_x": scale_x,
+            "scale_y": scale_y,
         }
 
-        return (
-            resized_crop,
-            transform
-        )
+        return {
+            "image": roi_resized,
+            "transform": transform,
+            "bbox": (
+                roi_x1,
+                roi_y1,
+                roi_x2,
+                roi_y2
+            ),
+        }
 
     # ========================================================
     # RESTAURAR COORDENADAS
@@ -1283,71 +1572,46 @@ class OperatorFatigueNode(Node):
     def _restore_face_coordinates(
         self,
         face_result,
-        transform,
+        transform
     ):
-        """
-        Convierte todos los puntos detectados en la ROI
-        a coordenadas de la imagen original.
-        """
 
-        if face_result is None:
-            return None
+        offset_x = transform[
+            "offset_x"
+        ]
 
-        if not face_result.face_detected:
-            return face_result
+        offset_y = transform[
+            "offset_y"
+        ]
 
-        offset_x = transform["offset_x"]
-        offset_y = transform["offset_y"]
+        scale_x = transform[
+            "scale_x"
+        ]
 
-        scale_x = transform["scale_x"]
-        scale_y = transform["scale_y"]
-
-        # ----------------------------------------------------
-        # Punto individual
-        # ----------------------------------------------------
-
-        def restore_point(point):
-
-            if point is None:
-                return None
-
-            x = (
-                float(point[0])
-                / scale_x
-                + offset_x
-            )
-
-            y = (
-                float(point[1])
-                / scale_y
-                + offset_y
-            )
-
-            return (
-                x,
-                y
-            )
+        scale_y = transform[
+            "scale_y"
+        ]
 
         # ----------------------------------------------------
-        # Landmarks generales
+        # Landmarks
         # ----------------------------------------------------
 
-        if face_result.landmarks is not None:
-
-            restored_landmarks = []
-
-            for point in face_result.landmarks:
-
-                restored_landmarks.append(
-                    restore_point(point)
-                )
+        if (
+            face_result.landmarks
+            is not None
+        ):
 
             face_result.landmarks = (
-                restored_landmarks
+                self._restore_points(
+                    face_result.landmarks,
+                    offset_x,
+                    offset_y,
+                    scale_x,
+                    scale_y
+                )
             )
 
         # ----------------------------------------------------
-        # Bounding box
+        # BBox
         # ----------------------------------------------------
 
         if face_result.bbox is not None:
@@ -1357,136 +1621,339 @@ class OperatorFatigueNode(Node):
             )
 
             face_result.bbox = (
+
                 int(
-                    x1 / scale_x
-                    + offset_x
+                    round(
+                        float(x1)
+                        /
+                        scale_x
+                        +
+                        offset_x
+                    )
                 ),
+
                 int(
-                    y1 / scale_y
-                    + offset_y
+                    round(
+                        float(y1)
+                        /
+                        scale_y
+                        +
+                        offset_y
+                    )
                 ),
+
                 int(
-                    x2 / scale_x
-                    + offset_x
+                    round(
+                        float(x2)
+                        /
+                        scale_x
+                        +
+                        offset_x
+                    )
                 ),
+
                 int(
-                    y2 / scale_y
-                    + offset_y
+                    round(
+                        float(y2)
+                        /
+                        scale_y
+                        +
+                        offset_y
+                    )
                 ),
             )
 
         # ----------------------------------------------------
-        # Head pose
+        # Head Pose
         # ----------------------------------------------------
 
-        face_result.head_pose_points = (
-            self._restore_points(
-                face_result.head_pose_points,
-                scale_x,
-                scale_y,
-                offset_x,
-                offset_y,
+        if (
+            face_result.head_pose_points
+            is not None
+        ):
+
+            face_result.head_pose_points = (
+                self._restore_points(
+                    face_result.head_pose_points,
+                    offset_x,
+                    offset_y,
+                    scale_x,
+                    scale_y
+                )
             )
-        )
 
         # ----------------------------------------------------
         # Ojo izquierdo
         # ----------------------------------------------------
 
-        face_result.left_eye_points = (
-            self._restore_points(
-                face_result.left_eye_points,
-                scale_x,
-                scale_y,
-                offset_x,
-                offset_y,
+        if (
+            face_result.left_eye_points
+            is not None
+        ):
+
+            face_result.left_eye_points = (
+                self._restore_points(
+                    face_result.left_eye_points,
+                    offset_x,
+                    offset_y,
+                    scale_x,
+                    scale_y
+                )
             )
-        )
 
         # ----------------------------------------------------
         # Ojo derecho
         # ----------------------------------------------------
 
-        face_result.right_eye_points = (
-            self._restore_points(
-                face_result.right_eye_points,
-                scale_x,
-                scale_y,
-                offset_x,
-                offset_y,
+        if (
+            face_result.right_eye_points
+            is not None
+        ):
+
+            face_result.right_eye_points = (
+                self._restore_points(
+                    face_result.right_eye_points,
+                    offset_x,
+                    offset_y,
+                    scale_x,
+                    scale_y
+                )
             )
-        )
 
         # ----------------------------------------------------
         # Boca
         # ----------------------------------------------------
 
-        face_result.mouth_points = (
-            self._restore_points(
-                face_result.mouth_points,
-                scale_x,
-                scale_y,
-                offset_x,
-                offset_y,
+        if (
+            face_result.mouth_points
+            is not None
+        ):
+
+            face_result.mouth_points = (
+                self._restore_points(
+                    face_result.mouth_points,
+                    offset_x,
+                    offset_y,
+                    scale_x,
+                    scale_y
+                )
             )
-        )
 
         # ----------------------------------------------------
         # Nariz
         # ----------------------------------------------------
 
-        if face_result.nose_point is not None:
+        if (
+            face_result.nose_point
+            is not None
+        ):
+
+            x = face_result.nose_point[0]
+
+            y = face_result.nose_point[1]
 
             face_result.nose_point = (
-                restore_point(
-                    face_result.nose_point
-                )
+                int(
+                    round(
+                        float(x)
+                        /
+                        scale_x
+                        +
+                        offset_x
+                    )
+                ),
+
+                int(
+                    round(
+                        float(y)
+                        /
+                        scale_y
+                        +
+                        offset_y
+                    )
+                ),
             )
 
-        return face_result
-
     # ========================================================
-    # RESTAURAR CONJUNTO DE PUNTOS
+    # RESTAURAR PUNTOS
     # ========================================================
 
     @staticmethod
     def _restore_points(
         points,
-        scale_x,
-        scale_y,
         offset_x,
         offset_y,
+        scale_x,
+        scale_y
     ):
-        """
-        Restaura un conjunto de puntos 2D.
-        """
-
-        if points is None:
-            return None
 
         points = np.asarray(
             points,
             dtype=np.float32
         )
 
-        if points.size == 0:
-            return points
-
-        restored = points.copy()
+        restored = (
+            points.copy()
+        )
 
         restored[:, 0] = (
-            restored[:, 0]
-            / scale_x
-            + offset_x
+            points[:, 0]
+            /
+            float(scale_x)
+            +
+            float(offset_x)
         )
 
         restored[:, 1] = (
-            restored[:, 1]
-            / scale_y
-            + offset_y
+            points[:, 1]
+            /
+            float(scale_y)
+            +
+            float(offset_y)
         )
 
         return restored
+
+    # ========================================================
+    # CALCULAR EYE OPENNESS
+    # ========================================================
+
+    @staticmethod
+    def _calculate_eye_openness(
+        left_eye_points,
+        right_eye_points
+    ):
+
+        """
+        Calcula una medida normalizada de apertura ocular
+        utilizando los seis puntos de cada ojo.
+
+        La estructura esperada es:
+
+            [p1, p2, p3, p4, p5, p6]
+
+        siguiendo los landmarks utilizados por BlinkAnalyzer.
+        """
+
+        def calculate_ear(points):
+
+            points = np.asarray(
+                points,
+                dtype=np.float32
+            )
+
+            if points.shape[0] != 6:
+
+                raise ValueError(
+                    "Eye landmarks must contain "
+                    "exactly 6 points"
+                )
+
+            p1, p2, p3, p4, p5, p6 = points
+
+            vertical_1 = np.linalg.norm(
+                p2 - p6
+            )
+
+            vertical_2 = np.linalg.norm(
+                p3 - p5
+            )
+
+            horizontal = np.linalg.norm(
+                p1 - p4
+            )
+
+            if horizontal <= 1e-6:
+
+                return 0.0
+
+            return (
+                vertical_1
+                +
+                vertical_2
+            ) / (
+                2.0 * horizontal
+            )
+
+        left_ear = calculate_ear(
+            left_eye_points
+        )
+
+        right_ear = calculate_ear(
+            right_eye_points
+        )
+
+        mean_ear = (
+            left_ear
+            +
+            right_ear
+        ) / 2.0
+
+        # ----------------------------------------------------
+        # Normalización aproximada
+        # ----------------------------------------------------
+
+        minimum = 0.10
+
+        maximum = 0.35
+
+        openness = (
+            mean_ear - minimum
+        ) / (
+            maximum - minimum
+        )
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                openness
+            )
+        )
+
+    # ========================================================
+    # DIBUJAR ROI
+    # ========================================================
+
+    def _draw_face_roi(
+        self,
+        image,
+        roi_data
+    ):
+
+        x1, y1, x2, y2 = (
+            roi_data["bbox"]
+        )
+
+        cv2.rectangle(
+            image,
+            (
+                int(x1),
+                int(y1)
+            ),
+            (
+                int(x2),
+                int(y2)
+            ),
+            (255, 0, 255),
+            2
+        )
+
+        cv2.putText(
+            image,
+            "Face ROI",
+            (
+                int(x1),
+                max(
+                    20,
+                    int(y1) - 8
+                )
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 0, 255),
+            2
+        )
 
     # ========================================================
     # DIBUJAR PERSONA
@@ -1498,16 +1965,32 @@ class OperatorFatigueNode(Node):
         person
     ):
 
-        x1 = int(person.x1)
-        y1 = int(person.y1)
+        x1 = int(
+            person.x1
+        )
 
-        x2 = int(person.x2)
-        y2 = int(person.y2)
+        y1 = int(
+            person.y1
+        )
+
+        x2 = int(
+            person.x2
+        )
+
+        y2 = int(
+            person.y2
+        )
 
         cv2.rectangle(
             image,
-            (x1, y1),
-            (x2, y2),
+            (
+                x1,
+                y1
+            ),
+            (
+                x2,
+                y2
+            ),
             (255, 0, 0),
             2
         )
@@ -1518,80 +2001,19 @@ class OperatorFatigueNode(Node):
             f"{person.confidence:.2f}"
         )
 
-        text_y = max(
-            20,
-            y1 - 10
-        )
-
         cv2.putText(
             image,
             label,
-            (x1, text_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 0, 0),
-            2
-        )
-
-    # ========================================================
-    # DIBUJAR ROI
-    # ========================================================
-
-    def _draw_face_roi(
-        self,
-        image,
-        transform,
-        face_input,
-    ):
-        """
-        Dibuja sobre la imagen original la ROI utilizada
-        para la detección facial.
-        """
-
-        if transform is None:
-            return
-
-        x1 = transform.get(
-            "roi_x1",
-            0
-        )
-
-        y1 = transform.get(
-            "roi_y1",
-            0
-        )
-
-        x2 = transform.get(
-            "roi_x2",
-            0
-        )
-
-        y2 = transform.get(
-            "roi_y2",
-            0
-        )
-
-        cv2.rectangle(
-            image,
-            (x1, y1),
-            (x2, y2),
-            (255, 0, 255),
-            2
-        )
-
-        cv2.putText(
-            image,
-            "Face ROI",
             (
                 x1,
                 max(
                     20,
-                    y1 - 8
+                    y1 - 10
                 )
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (255, 0, 255),
+            (255, 0, 0),
             2
         )
 
@@ -1602,9 +2024,12 @@ class OperatorFatigueNode(Node):
     def _draw_face_information(
         self,
         image,
-        face_result,
-        primary_person
+        face_result
     ):
+
+        # ----------------------------------------------------
+        # Bounding box
+        # ----------------------------------------------------
 
         if face_result.bbox is not None:
 
@@ -1614,40 +2039,26 @@ class OperatorFatigueNode(Node):
 
             cv2.rectangle(
                 image,
-                (x1, y1),
-                (x2, y2),
+                (
+                    int(x1),
+                    int(y1)
+                ),
+                (
+                    int(x2),
+                    int(y2)
+                ),
                 (0, 255, 0),
                 2
-            )
-
-        if self._points_face:
-
-            image_with_landmarks = (
-                self._face_landmark_detector
-                .draw_landmarks(
-                    image,
-                    face_result
-                )
-            )
-
-            image[:] = (
-                image_with_landmarks
-            )
-
-        if face_result.bbox is not None:
-
-            x1, y1, _, _ = (
-                face_result.bbox
             )
 
             cv2.putText(
                 image,
                 "Face detected",
                 (
-                    x1,
+                    int(x1),
                     max(
                         20,
-                        y1 - 10
+                        int(y1) - 10
                     )
                 ),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -1656,250 +2067,307 @@ class OperatorFatigueNode(Node):
                 2
             )
 
+        # ----------------------------------------------------
+        # Landmarks
+        # ----------------------------------------------------
+
+        if self._points_face:
+
+            try:
+
+                image_with_landmarks = (
+                    self._face_landmark_detector
+                    .draw_landmarks(
+                        image,
+                        face_result
+                    )
+                )
+
+                image[:] = (
+                    image_with_landmarks
+                )
+
+            except Exception as e:
+
+                self.get_logger().warning(
+                    "Error dibujando landmarks: "
+                    f"{e}"
+                )
+
     # ========================================================
-    # DIBUJAR INFORMACIÓN DE PARPADEO
+    # DIBUJAR EXPRESSION
+    # ========================================================
+
+    def _draw_expression_information(
+        self,
+        image,
+        expression_result
+    ):
+
+        x = 20
+        y = 40
+        line_height = 25
+
+        lines = [
+
+            (
+                f"Expression: "
+                f"{expression_result.expression}"
+            ),
+
+            (
+                f"Confidence: "
+                f"{expression_result.confidence:.2f}"
+            ),
+
+            (
+                f"Smile: "
+                f"{expression_result.smile_score:.2f}"
+            ),
+
+            (
+                f"Frown: "
+                f"{expression_result.frown_score:.2f}"
+            ),
+
+            (
+                f"Surprise: "
+                f"{expression_result.surprise_score:.2f}"
+            ),
+
+            (
+                f"Neutral: "
+                f"{expression_result.neutral_score:.2f}"
+            ),
+
+            (
+                f"Sleepy: "
+                f"{expression_result.sleepy_score:.2f}"
+            ),
+
+            (
+                f"Tired: "
+                f"{expression_result.tired_score:.2f}"
+            ),
+
+            (
+                f"Fatigued: "
+                f"{expression_result.fatigued_score:.2f}"
+            ),
+
+            (
+                f"Yawn: "
+                f"{expression_result.yawn_score:.2f}"
+            ),
+        ]
+
+        for index, line in enumerate(
+            lines
+        ):
+
+            cv2.putText(
+                image,
+                line,
+                (
+                    x,
+                    y +
+                    index *
+                    line_height
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                2
+            )
+
+        return image
+
+    # ========================================================
+    # DIBUJAR BLINK
     # ========================================================
 
     def _draw_blink_information(
         self,
         image,
-        blink_result,
+        blink_result
     ):
 
-        x = 20
-        y = 100
-        line_spacing = 30
+        x = 700
+        y = 40
+        line_height = 25
 
-        cv2.putText(
-            image,
+        lines = [
+
             (
                 f"Left EAR: "
-                f"{blink_result.left_ear:.3f}"
+                f"{blink_result.left_ear:.2f}"
             ),
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Right EAR: "
-                f"{blink_result.right_ear:.3f}"
+                f"{blink_result.right_ear:.2f}"
             ),
-            (
-                x,
-                y + line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Eye openness: "
                 f"{blink_result.eye_openness:.2f}"
             ),
-            (
-                x,
-                y + 2 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Blink frequency: "
-                f"{blink_result.blink_frequency:.1f} "
-                f"blinks/min"
+                f"{blink_result.blink_frequency:.2f}"
             ),
-            (
-                x,
-                y + 3 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Total blinks: "
                 f"{blink_result.total_blinks}"
             ),
-            (
-                x,
-                y + 4 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
+        ]
+
+        for index, line in enumerate(
+            lines
+        ):
+
+            cv2.putText(
+                image,
+                line,
+                (
+                    x,
+                    y +
+                    index *
+                    line_height
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 0),
+                2
+            )
+
+        return image
 
     # ========================================================
-    # DIBUJAR INFORMACIÓN HEAD POSE
+    # DIBUJAR HEAD POSE
     # ========================================================
 
     def _draw_head_pose_information(
         self,
         image,
-        head_pose_result,
+        head_pose_result
     ):
 
         x = 20
-        y = 250
-        line_spacing = 30
+        y = 320
+        line_height = 25
 
-        cv2.putText(
-            image,
+        lines = [
+
             (
                 f"Yaw: "
-                f"{head_pose_result.yaw:.1f} deg"
+                f"{head_pose_result.yaw:.1f}"
             ),
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Pitch: "
-                f"{head_pose_result.pitch:.1f} deg"
+                f"{head_pose_result.pitch:.1f}"
             ),
-            (
-                x,
-                y + line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Roll: "
-                f"{head_pose_result.roll:.1f} deg"
+                f"{head_pose_result.roll:.1f}"
             ),
+
             (
-                x,
-                y + 2 * line_spacing
+                f"Valid: "
+                f"{head_pose_result.pose_valid}"
             ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
+        ]
+
+        for index, line in enumerate(
+            lines
+        ):
+
+            cv2.putText(
+                image,
+                line,
+                (
+                    x,
+                    y +
+                    index *
+                    line_height
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                2
+            )
+
+        return image
 
     # ========================================================
-    # DIBUJAR INFORMACIÓN ATTENTION
+    # DIBUJAR ATTENTION
     # ========================================================
 
     def _draw_attention_information(
         self,
         image,
-        attention_result,
+        attention_result
     ):
 
         x = 20
-        y = 350
-        line_spacing = 30
+        y = 440
+        line_height = 25
 
-        cv2.putText(
-            image,
+        lines = [
+
             (
                 f"Attention: "
                 f"{attention_result.attention_target}"
             ),
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
-                f"Attention score: "
+                f"Score: "
                 f"{attention_result.attention_score:.2f}"
             ),
-            (
-                x,
-                y + line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
-                f"Task attention: "
+                f"Task: "
                 f"{attention_result.task_attention}"
             ),
-            (
-                x,
-                y + 2 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
-                f"HMI attention: "
+                f"HMI: "
                 f"{attention_result.hmi_attention}"
             ),
-            (
-                x,
-                y + 3 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
 
-        cv2.putText(
-            image,
             (
                 f"Distracted: "
                 f"{attention_result.distracted}"
             ),
-            (
-                x,
-                y + 4 * line_spacing
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 0),
-            2
-        )
+        ]
+
+        for index, line in enumerate(
+            lines
+        ):
+
+            cv2.putText(
+                image,
+                line,
+                (
+                    x,
+                    y +
+                    index *
+                    line_height
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                2
+            )
+
+        return image
 
     # ========================================================
-    # DIBUJAR CUANDO NO HAY OPERADOR
+    # NO HAY OPERADOR
     # ========================================================
 
     def _draw_no_operator(
@@ -1910,7 +2378,10 @@ class OperatorFatigueNode(Node):
         cv2.putText(
             image,
             "No operator detected",
-            (30, 40),
+            (
+                30,
+                40
+            ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
             (0, 0, 255),
@@ -1918,7 +2389,7 @@ class OperatorFatigueNode(Node):
         )
 
     # ========================================================
-    # DIBUJAR CUANDO NO HAY ROSTRO
+    # NO HAY ROSTRO
     # ========================================================
 
     def _draw_no_face(
@@ -1968,9 +2439,17 @@ class OperatorFatigueNode(Node):
             image
         )
 
-        key = cv2.waitKey(1) & 0xFF
+        key = (
+            cv2.waitKey(1)
+            &
+            0xFF
+        )
 
-        if key == ord("q") or key == 27:
+        if (
+            key == ord("q")
+            or
+            key == 27
+        ):
 
             self.get_logger().info(
                 "Cierre solicitado por usuario."
@@ -1988,11 +2467,19 @@ class OperatorFatigueNode(Node):
             "Cerrando Operator Fatigue Node..."
         )
 
+        # ----------------------------------------------------
+        # Cámara
+        # ----------------------------------------------------
+
         if self._camera is not None:
 
             self._camera.release()
 
             self._camera = None
+
+        # ----------------------------------------------------
+        # Ventanas
+        # ----------------------------------------------------
 
         try:
 
@@ -2002,6 +2489,10 @@ class OperatorFatigueNode(Node):
 
             pass
 
+        # ----------------------------------------------------
+        # MediaPipe
+        # ----------------------------------------------------
+
         try:
 
             if (
@@ -2010,7 +2501,8 @@ class OperatorFatigueNode(Node):
                     "_face_landmark_detector"
                 )
                 and
-                self._face_landmark_detector is not None
+                self._face_landmark_detector
+                is not None
             ):
 
                 self._face_landmark_detector.close()
@@ -2018,9 +2510,14 @@ class OperatorFatigueNode(Node):
         except Exception as e:
 
             self.get_logger().warning(
-                "Error cerrando FaceLandmarkDetector: "
+                "Error cerrando "
+                "FaceLandmarkDetector: "
                 f"{e}"
             )
+
+        # ----------------------------------------------------
+        # ROS
+        # ----------------------------------------------------
 
         super().destroy_node()
 
@@ -2058,22 +2555,27 @@ def main(args=None):
                 f"{e}"
             )
 
+        else:
+
+            print(
+                "Error inicializando "
+                f"OperatorFatigueNode: {e}"
+            )
+
     finally:
 
         if node is not None:
 
-            try:
-
-                node.destroy_node()
-
-            except Exception:
-
-                pass
+            node.destroy_node()
 
         if rclpy.ok():
 
             rclpy.shutdown()
 
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
 
