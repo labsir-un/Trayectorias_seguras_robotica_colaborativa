@@ -124,14 +124,12 @@ instalar_apt "ros-$ROS_DISTRO-ros2-control"
 instalar_apt "ros-$ROS_DISTRO-ros2-controllers"
 instalar_apt "ros-$ROS_DISTRO-controller-manager"
 instalar_apt "ros-$ROS_DISTRO-tf-transformations"
-instalar_apt "python3-pip"
-instalar_apt "python3-full"
 instalar_apt "ros-$ROS_DISTRO-cv-bridge"
 instalar_apt "ros-$ROS_DISTRO-vision-msgs"
-
-pip install ultralytics --break-system-packages
-pip install mediapipe --break-system-packages
-pip install "numpy<2"
+instalar_apt "python3-pip"
+instalar_apt "python3-full"
+instalar_apt "python3-venv"
+instalar_apt "python3-virtualenv"
 
 cd $DIRECTORIO_ORIGEN
 

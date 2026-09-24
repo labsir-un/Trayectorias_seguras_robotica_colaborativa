@@ -117,6 +117,19 @@ fi
 
 agregar_linea_bashrc "export LIBGL_ALWAYS_SOFTWARE=1"
 
+cd "$WS_TRABAJO"
+# crea el entrono virtual para instalar mediapipe y ultralytics
+virtualenv -p python3 ./venv
+source ./venv/bin/activate
+touch ./venv/COLCON_IGNORE
+
+# Intalar dependencias de Python necesarias
+pip install --upgrade pip
+pip install mediapipe ultralytics
+
+agregar_linea_bashrc "alias TrackingOn='cd ~/DetTracking_ws && source .venv/bin/activate && touch .venv/COLCON_IGNORE && echo \"[✓] Entorno Virtual Activo y COLCON_IGNORE asegurado.\"'"
+agregar_linea_bashrc "alias TrackingOff='deactivate && echo \"[✗] Entorno Virtual Desactivado.\"'"
+
 source ~/.bashrc 2>/dev/null || true
 cd $DIRECTORIO_ORIGEN
 
