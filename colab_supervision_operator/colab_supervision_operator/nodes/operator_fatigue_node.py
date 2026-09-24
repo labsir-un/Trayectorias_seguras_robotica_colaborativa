@@ -11,7 +11,8 @@ Este nodo:
 - Realiza seguimiento mediante PersonTracker.
 - Detecta landmarks faciales mediante MediaPipe Face Landmarker.
 - Analiza parpadeos mediante BlinkAnalyzer.
-- Permite visualizar frecuencia de parpadeo, total de parpadeos y apertura ocular.
+- Estima orientación de cabeza mediante HeadPoseEstimator.
+- Permite visualizar datos de parpadeo y orientación de cabeza.
 """
 
 import cv2
@@ -95,11 +96,25 @@ class OperatorFatigueNode(Node):
         )
 
         # ----------------------------------------------------
-        # Visualización datos de parpadeo
+        # Visualización Blink
         # ----------------------------------------------------
 
         self.declare_parameter(
             "visualizar_blink",
+            False
+        )
+
+        # ----------------------------------------------------
+        # Visualización Head Pose
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_head_pose",
+            False
+        )
+
+        self.declare_parameter(
+            "visualizar_pose_axes",
             False
         )
 
@@ -176,6 +191,14 @@ class OperatorFatigueNode(Node):
 
         self._visualizar_blink = self.get_parameter(
             "visualizar_blink"
+        ).value
+
+        self._visualizar_head_pose = self.get_parameter(
+            "visualizar_head_pose"
+        ).value
+
+        self._visualizar_pose_axes = self.get_parameter(
+            "visualizar_pose_axes"
         ).value
 
         # ----------------------------------------------------
@@ -256,7 +279,13 @@ class OperatorFatigueNode(Node):
         )
 
         self.get_logger().info(
-            f"Visualización Blink: {self._visualizar_blink}"
+            f"Visualización Blink: "
+            f"{self._visualizar_blink}"
+        )
+
+        self.get_logger().info(
+            f"Visualización Head Pose: "
+            f"{self._visualizar_head_pose}"
         )
 
         self.get_logger().info(
@@ -265,6 +294,11 @@ class OperatorFatigueNode(Node):
 
         self.get_logger().info(
             f"Modelo Face Landmarker: {face_model}"
+        )
+
+        self.get_logger().info(
+            f"Visualización Pose Axes: "
+            f"{self._visualizar_pose_axes}"
         )
 
         self.get_logger().info(
@@ -370,8 +404,8 @@ class OperatorFatigueNode(Node):
 
         self._blink_analyzer = BlinkAnalyzer(
             eye_closed_threshold=0.23,
-            min_closed_frames=2,
-            max_closed_frames=14,
+            min_closed_frames=1,
+            max_closed_frames=20,
             fps=float(self._camera_fps),
             frequency_window_seconds=60.0,
             openness_min_ear=0.10,
@@ -380,6 +414,20 @@ class OperatorFatigueNode(Node):
 
         self.get_logger().info(
             "BlinkAnalyzer inicializado correctamente."
+        )
+
+        # ====================================================
+        # HEAD POSE ESTIMATOR
+        # ====================================================
+
+        self.get_logger().info(
+            "Inicializando HeadPoseEstimator..."
+        )
+
+        self._head_pose_estimator = HeadPoseEstimator()
+
+        self.get_logger().info(
+            "HeadPoseEstimator inicializado correctamente."
         )
 
         # ====================================================
@@ -661,11 +709,6 @@ class OperatorFatigueNode(Node):
         # FACE LANDMARKS
         # ====================================================
 
-        # En esta implementación se utiliza el frame completo.
-        #
-        # Los landmarks generados por MediaPipe ya están en
-        # coordenadas de la imagen completa.
-
         try:
 
             face_result = (
@@ -683,6 +726,11 @@ class OperatorFatigueNode(Node):
 
             self._blink_analyzer.reset()
 
+            self._draw_no_face(
+                display_frame,
+                primary_person
+            )
+
             self._show_frame(
                 display_frame
             )
@@ -695,9 +743,9 @@ class OperatorFatigueNode(Node):
 
         if face_result.face_detected:
 
-            # ------------------------------------------------
+            # =================================================
             # BLINK ANALYZER
-            # ------------------------------------------------
+            # =================================================
 
             try:
 
@@ -717,9 +765,34 @@ class OperatorFatigueNode(Node):
 
                 blink_result = None
 
-            # ------------------------------------------------
-            # Información facial
-            # ------------------------------------------------
+            # =================================================
+            # HEAD POSE ESTIMATOR
+            # =================================================
+
+            try:
+
+                head_pose_result = (
+                    self._head_pose_estimator.update(
+                        face_result.head_pose_points,
+                        (
+                            frame.shape[1],
+                            frame.shape[0]
+                        )
+                    )
+                )
+
+            except Exception as e:
+
+                self.get_logger().error(
+                    "Error en HeadPoseEstimator: "
+                    f"{e}"
+                )
+
+                head_pose_result = None
+
+            # =================================================
+            # INFORMACIÓN FACIAL
+            # =================================================
 
             self._draw_face_information(
                 display_frame,
@@ -727,9 +800,9 @@ class OperatorFatigueNode(Node):
                 primary_person
             )
 
-            # ------------------------------------------------
-            # Información de parpadeo
-            # ------------------------------------------------
+            # =================================================
+            # INFORMACIÓN BLINK
+            # =================================================
 
             if (
                 self._visualizar_blink
@@ -740,6 +813,32 @@ class OperatorFatigueNode(Node):
                 self._draw_blink_information(
                     display_frame,
                     blink_result
+                )
+
+            # =================================================
+            # INFORMACIÓN HEAD POSE
+            # =================================================
+
+            if (
+                self._visualizar_head_pose
+                and head_pose_result is not None
+                and head_pose_result.pose_valid
+            ):
+
+                self._draw_head_pose_information(
+                    display_frame,
+                    head_pose_result
+                )
+
+            if (
+                self._visualizar_pose_axes
+                and head_pose_result is not None
+                and head_pose_result.pose_valid
+            ):
+
+                self._head_pose_estimator.draw_pose_axes(
+                    display_frame,
+                    head_pose_result
                 )
 
         else:
@@ -904,13 +1003,6 @@ class OperatorFatigueNode(Node):
     ):
         """
         Visualiza los datos principales generados por BlinkAnalyzer.
-
-        Se muestran:
-        - EAR del ojo izquierdo.
-        - EAR del ojo derecho.
-        - Apertura ocular.
-        - Frecuencia de parpadeo.
-        - Total de parpadeos.
         """
 
         x = 20
@@ -975,7 +1067,7 @@ class OperatorFatigueNode(Node):
         )
 
         # ----------------------------------------------------
-        # Frecuencia de parpadeo
+        # Frecuencia
         # ----------------------------------------------------
 
         cv2.putText(
@@ -995,9 +1087,9 @@ class OperatorFatigueNode(Node):
             2
         )
 
-    # ----------------------------------------------------
-    # Total de parpadeos
-    # ----------------------------------------------------
+        # ----------------------------------------------------
+        # Total
+        # ----------------------------------------------------
 
         cv2.putText(
             image,
@@ -1012,6 +1104,80 @@ class OperatorFatigueNode(Node):
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0, 255, 0),
+            2
+        )
+
+    # ========================================================
+    # DIBUJAR INFORMACIÓN HEAD POSE
+    # ========================================================
+
+    def _draw_head_pose_information(
+        self,
+        image,
+        head_pose_result,
+    ):
+        """
+        Visualiza la orientación de la cabeza.
+        """
+
+        x = 20
+        y = 250
+        line_spacing = 30
+
+        # ----------------------------------------------------
+        # Yaw
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Yaw: "
+                f"{head_pose_result.yaw:.1f} deg"
+            ),
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Pitch
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Pitch: "
+                f"{head_pose_result.pitch:.1f} deg"
+            ),
+            (
+                x,
+                y + line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Roll
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Roll: "
+                f"{head_pose_result.roll:.1f} deg"
+            ),
+            (
+                x,
+                y + 2 * line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 0),
             2
         )
 

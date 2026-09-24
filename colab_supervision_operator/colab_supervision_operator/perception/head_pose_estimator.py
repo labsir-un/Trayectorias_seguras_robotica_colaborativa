@@ -22,6 +22,9 @@ class HeadPoseResult:
     pitch: float
     roll: float
 
+    rotation_vector: Optional[np.ndarray]
+    translation_vector: Optional[np.ndarray]
+
     pose_valid: bool
 
 
@@ -63,6 +66,8 @@ class HeadPoseEstimator():
         self._pitch = 0.0
         self._roll = 0.0
         self._pose_valid = False
+        self._rotation_vector = None
+        self._translation_vector = None
 
     # ======================================================
     # UPDATE
@@ -104,7 +109,7 @@ class HeadPoseEstimator():
         # Estimate head pose
         # --------------------------------------------------
 
-        success, rotation_vector, _ = cv2.solvePnP(
+        success, rotation_vector, translation_vector = cv2.solvePnP(
             model_points,
             image_points,
             camera_matrix,
@@ -114,7 +119,12 @@ class HeadPoseEstimator():
 
         if not success:
             self._pose_valid = False
+            self._rotation_vector = None
+            self._translation_vector = None
             return self.get_result()
+
+        self._rotation_vector = rotation_vector
+        self._translation_vector = translation_vector
 
         # --------------------------------------------------
         # Rotation vector -> rotation matrix
@@ -199,8 +209,159 @@ class HeadPoseEstimator():
             yaw=self._yaw,
             pitch=self._pitch,
             roll=self._roll,
+            rotation_vector=(
+                self._rotation_vector.copy()
+                if self._rotation_vector is not None
+                else None
+            ),
+            translation_vector=(
+                self._translation_vector.copy()
+                if self._translation_vector is not None
+                else None
+            ),
             pose_valid=self._pose_valid
         )
+
+    def draw_pose_axes(
+        self,
+        image: np.ndarray,
+        pose_result: HeadPoseResult,
+        axis_length: float = 50.0,
+        ) -> np.ndarray:
+        """
+        Dibuja los ejes 3D de orientación de la cabeza
+        proyectados sobre la imagen.
+        """
+
+        if not pose_result.pose_valid:
+            return image
+
+        if pose_result.rotation_vector is None:
+            return image
+
+        if pose_result.translation_vector is None:
+            return image
+
+        height, width = image.shape[:2]
+
+        camera_matrix = self._get_camera_matrix(
+            (width, height)
+        )
+
+        distortion_coefficients = (
+            self._get_distortion_coefficients()
+        )
+
+        # ==================================================
+        # Ejes 3D
+        # ==================================================
+
+        axis_points = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [axis_length, 0.0, 0.0],
+                [0.0, axis_length, 0.0],
+                [0.0, 0.0, axis_length],
+            ],
+            dtype=np.float64,
+        )
+
+        # ==================================================
+        # Proyección 3D -> 2D
+        # ==================================================
+
+        projected_points, _ = cv2.projectPoints(
+            axis_points,
+            pose_result.rotation_vector,
+            pose_result.translation_vector,
+            camera_matrix,
+            distortion_coefficients,
+        )
+
+        projected_points = projected_points.reshape(
+            -1,
+            2
+        ).astype(int)
+
+        origin = tuple(
+            projected_points[0]
+        )
+
+        x_axis = tuple(
+            projected_points[1]
+        )
+
+        y_axis = tuple(
+            projected_points[2]
+        )
+
+        z_axis = tuple(
+            projected_points[3]
+        )
+
+        # ==================================================
+        # Dibujar ejes
+        # ==================================================
+
+        cv2.line(
+            image,
+            origin,
+            x_axis,
+            (0, 0, 255),
+            3,
+        )
+
+        cv2.line(
+            image,
+            origin,
+            y_axis,
+            (0, 255, 0),
+            3,
+        )
+
+        cv2.line(
+            image,
+            origin,
+            z_axis,
+            (255, 0, 0),
+            3,
+        )
+
+        # ==================================================
+        # Etiquetas
+        # ==================================================
+
+        cv2.putText(
+            image,
+            "X",
+            x_axis,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 255),
+            2,
+        )
+
+        cv2.putText(
+            image,
+            "Y",
+            y_axis,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2,
+        )
+
+        cv2.putText(
+            image,
+            "Z",
+            z_axis,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 0, 0),
+            2,
+        )
+
+        return image
 
     # ======================================================
     # INTERNAL METHODS
@@ -209,9 +370,15 @@ class HeadPoseEstimator():
     @staticmethod
     def _get_model_points() -> np.ndarray:
         """
-        Return the reference 3D facial model.
+        Reference 3D facial model expressed in the head RPY frame.
 
-        The points correspond to:
+        Head coordinate convention:
+
+            X -> forward
+            Y -> left
+            Z -> up
+
+        Points:
 
             0 -> nose
             1 -> chin
@@ -220,16 +387,20 @@ class HeadPoseEstimator():
             4 -> left mouth corner
             5 -> right mouth corner
         """
+
         model_points = np.array(
             [
-                (0.0, 0.0, 0.0),            # Nose
-                (0.0, -63.6, -12.5),         # Chin
-                (-43.3, 32.7, -26.0),        # Left eye
-                (43.3, 32.7, -26.0),         # Right eye
-                (-28.9, -28.9, -24.1),       # Left mouth
-                (28.9, -28.9, -24.1),        # Right mouth
+                (0.0, 0.0, 0.0),           # Nose
+
+                (-12.5, 0.0, -63.6),       # Chin
+
+                (-26.0, 43.3, 32.7),       # Left eye
+                (-26.0, -43.3, 32.7),      # Right eye
+
+                (-24.1, 28.9, -28.9),      # Left mouth
+                (-24.1, -28.9, -28.9),     # Right mouth
             ],
-            dtype=np.float64
+            dtype=np.float64,
         )
 
         return model_points
@@ -283,32 +454,98 @@ class HeadPoseEstimator():
         return self._distortion_coefficients
 
     @staticmethod
-    def _rotation_matrix_to_euler(rotation_matrix: np.ndarray) -> tuple[float, float, float]:
-
+    def _rotation_matrix_to_euler(
+        rotation_matrix: np.ndarray,
+    ) -> tuple[float, float, float]:
         """
-        Convert a rotation matrix into yaw, pitch and roll
-        angles in degrees.
+        Convert OpenCV camera rotation into conventional RPY angles.
+
+        Head RPY convention:
+
+            X -> forward
+            Y -> left
+            Z -> up
+
+            Roll  -> rotation around X
+            Pitch -> rotation around Y
+            Yaw   -> rotation around Z
+
+        OpenCV optical frame:
+
+            X -> right
+            Y -> down
+            Z -> forward
         """
 
-        sy = np.sqrt(rotation_matrix[0, 0] ** 2 + rotation_matrix[1, 0] ** 2)
+        # ==========================================================
+        # Transformación:
+        #
+        # OpenCV optical frame
+        #       ↓
+        # RPY reference frame
+        # ==========================================================
+
+        optical_to_rpy = np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, -1.0, 0.0],
+            ],
+            dtype=np.float64,
+        )
+
+        rotation_rpy = (
+            optical_to_rpy @ rotation_matrix
+        )
+
+        # ==========================================================
+        # R = Rz(Yaw) * Ry(Pitch) * Rx(Roll)
+        # ==========================================================
+
+        sy = np.sqrt(
+            rotation_rpy[0, 0] ** 2
+            +
+            rotation_rpy[1, 0] ** 2
+        )
+
         singular = sy < 1e-6
 
         if not singular:
 
-            x = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
-            y = np.arctan2(-rotation_matrix[2, 0], sy)
-            z = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+            roll = np.arctan2(
+                rotation_rpy[2, 1],
+                rotation_rpy[2, 2],
+            )
+
+            pitch = np.arctan2(
+                -rotation_rpy[2, 0],
+                sy,
+            )
+
+            yaw = np.arctan2(
+                rotation_rpy[1, 0],
+                rotation_rpy[0, 0],
+            )
 
         else:
-            x = np.arctan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
-            y = np.arctan2(-rotation_matrix[2, 0],sy)
-            z = 0.0
 
-        roll = np.degrees(x)
-        pitch = np.degrees(y)
-        yaw = np.degrees(z)
+            roll = np.arctan2(
+                -rotation_rpy[1, 2],
+                rotation_rpy[1, 1],
+            )
 
-        return yaw, pitch, roll
+            pitch = np.arctan2(
+                -rotation_rpy[2, 0],
+                sy,
+            )
+
+            yaw = 0.0
+
+        return (
+            np.degrees(yaw),
+            np.degrees(pitch),
+            np.degrees(roll),
+        )
 
     # ======================================================
     # VALIDATION
