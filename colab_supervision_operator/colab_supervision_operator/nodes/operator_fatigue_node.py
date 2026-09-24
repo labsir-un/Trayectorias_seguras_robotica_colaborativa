@@ -75,7 +75,7 @@ class OperatorFatigueNode(Node):
         self.declare_parameter("expression_sleepy_threshold", 0.35)
         self.declare_parameter("expression_tired_threshold", 0.35)
         self.declare_parameter("expression_fatigued_threshold", 0.45)
-        self.declare_parameter("expression_yawn_threshold", 0.38)
+        self.declare_parameter("expression_yawn_threshold", 0.35)
         self.declare_parameter("expression_smoothing_alpha", 0.35)
         self.declare_parameter("expression_sleepy_frames", 6)
         self.declare_parameter("expression_tired_frames", 10)
@@ -559,7 +559,7 @@ class OperatorFatigueNode(Node):
             f"Eyes closed: {result.eyes_closed}",
             f"Blink detected: {result.blink_detected}",
             f"Blink duration: {result.blink_duration:.2f}s",
-            f"Blink frequency: {result.blink_frequency:.2f}",
+            f"Blink frequency: {result.blink_frequency:.2f} blinks/min",
             f"Total blinks: {result.total_blinks}",
         ]
         for i, text in enumerate(lines):
