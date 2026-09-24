@@ -130,6 +130,8 @@ pip install mediapipe ultralytics
 agregar_linea_bashrc "alias TrackingOn='cd ~/DetTracking_ws && source ./venv/bin/activate && touch ./venv/COLCON_IGNORE && echo \"[✓] Entorno Virtual Activo y COLCON_IGNORE asegurado.\"'"
 agregar_linea_bashrc "alias TrackingOff='deactivate && echo \"[✗] Entorno Virtual Desactivado.\"'"
 
+agregar_linea_bashrc "export PYTHONPATH=$PYTHONPATH:~/DetTracking_ws/venv/lib/python3.12/site-packages"
+
 source ~/.bashrc 2>/dev/null || true
 cd $DIRECTORIO_ORIGEN
 

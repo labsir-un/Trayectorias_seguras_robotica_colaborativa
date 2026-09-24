@@ -63,6 +63,8 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 - [Configuración para WLS](#configuración-para-wls)
   - [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb)
   - [Verificar IP de conexión para el socket](#verificar-ip-de-conexión-para-el-socket)
+  - [Instalación de programas y dependencias](#instalación-de-programas-y-dependencias)
+  - [Configuración de Work Space](#configuración-de-work-space)
 - [Agradecimientos](#agradecimientos)
 </details>
 
@@ -143,9 +145,36 @@ ip route show default
 >[!WARNING]
 >Si la IP no corresponde con la asignada para WLS el programa de PC SDK no respondera dado que no se accede a la red de acceso del programa el valor por defecto que se tiene es `172.25.64.1`
 
+### Instalación de programas y dependencias
 
+Ejecute en la terminal
 
+```sh
+~/DetTracking_ws/src/instalar.sh
+```
+Con esto se instalara las librerias, ros, kitty y todos los progrmas necesarios que no estan en el WLS.
 
+### Configuración de Work Space
+
+Ejecute en la terminal
+
+```sh
+~/DetTracking_ws/src/configuracionWS.sh 
+```
+Con esto se configura todo el entorno de trabajo, el tema de kitty, los atajaos de trabajo como:
+
+| Tipo | Comando / Función / Variable | Descripción / Utilidad |
+| :--- | :--- | :--- |
+| **Entorno ROS 2** | `source /opt/ros/$ROS_DISTRO/setup.bash` | Carga las variables de entorno y herramientas base de ROS 2. |
+| **Autocompletado** | `source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash` | Habilita el autocompletado con `Tab` para comandos de compilación `colcon`. |
+| **Configuración** | `[ -f $ARCHIVO_CONFIGURACION ] && source $ARCHIVO_CONFIGURACION` | Carga variables globales definidas en el archivo de configuración externo (si existe). |
+| **Alias** | `alias source_ws="source ./install/setup.bash"` | Recarga rápidamente el overlay del workspace actual tras compilar (`colcon build`). |
+| **Función** | `ros2_create_py_pkg <nombre_paquete>` | Crea automáticamente un paquete de ROS 2 en Python (`ament_python`) con `rclpy`. |
+| **Función** | `ros2_create_cpp_pkg <nombre_paquete>` | Crea automáticamente un paquete de ROS 2 en C++ (`ament_cmake`) con `rclcpp`. |
+| **Variable de entorno** | `export LIBGL_ALWAYS_SOFTWARE=1` | Fuerza renderizado OpenGL por software (evita crashes de RViz/Gazebo en GPUs/VMs). |
+| **Alias** | `alias TrackingOn='...'` | Va a `~/DetTracking_ws`, activa el entorno virtual (`venv`), asegura `COLCON_IGNORE` y notifica. |
+| **Alias** | `alias TrackingOff='...'` | Desactiva el entorno virtual (`deactivate`) y muestra mensaje de confirmación. |
+| **Variable de entorno** | `export PYTHONPATH=$PYTHONPATH:~/DetTracking_ws/venv/lib/python3.12/site-packages` | Expone paquetes del venv (`mediapipe`, `ultralytics`) para que los nodos de ROS 2 los encuentren. |
 
 
 ## Agradecimientos
