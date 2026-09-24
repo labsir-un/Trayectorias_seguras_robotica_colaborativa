@@ -29,7 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "fatigue_node = colab_supervision_operator.nodes.operator_fatigue_node:main",
+            "operator_fatigue = colab_supervision_operator.nodes.operator_fatigue:main",
             "camera_node = colab_supervision_operator.nodes.camera:main",
         ],
     },

@@ -75,7 +75,7 @@ class OperatorFatigueNode(Node):
         self.declare_parameter("expression_sleepy_threshold", 0.35)
         self.declare_parameter("expression_tired_threshold", 0.35)
         self.declare_parameter("expression_fatigued_threshold", 0.45)
-        self.declare_parameter("expression_yawn_threshold", 0.35)
+        self.declare_parameter("expression_yawn_threshold", 0.38)
         self.declare_parameter("expression_smoothing_alpha", 0.35)
         self.declare_parameter("expression_sleepy_frames", 6)
         self.declare_parameter("expression_tired_frames", 10)
@@ -550,50 +550,253 @@ class OperatorFatigueNode(Node):
 
         return image
 
+    def _draw_panel(
+        self,
+        image,
+        x1,
+        y1,
+        x2,
+        y2,
+        alpha=0.45,
+    ):
+        """Dibuja un panel negro semitransparente sobre la imagen."""
+
+        overlay = image.copy()
+
+        cv2.rectangle(
+            overlay,
+            (int(x1), int(y1)),
+            (int(x2), int(y2)),
+            (0, 0, 0),
+            -1,
+        )
+
+        cv2.addWeighted(
+            overlay,
+            alpha,
+            image,
+            1.0 - alpha,
+            0.0,
+            image,
+        )
+
+        cv2.rectangle(
+            image,
+            (int(x1), int(y1)),
+            (int(x2), int(y2)),
+            (180, 180, 180),
+            1,
+        )
+
+        return image
+
+    def _draw_panel_text(
+        self,
+        image,
+        lines,
+        x,
+        y,
+        line_height=25,
+        scale=0.55,
+        color=(255, 255, 255),
+    ):
+        """Dibuja una lista de líneas dentro de un panel."""
+
+        for index, line in enumerate(lines):
+            current_scale = scale
+
+            if index == 0:
+                current_scale = scale + 0.10
+
+            cv2.putText(
+                image,
+                line,
+                (int(x), int(y + index * line_height)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                current_scale,
+                color,
+                2,
+            )
+
+        return image
+
     def _draw_blink_information(self, image, result):
-        x, y, line = 700, 40, 25
+        """Visualiza los indicadores de parpadeo en el lateral derecho."""
+
+        height, width = image.shape[:2]
+
+        panel_x1 = width - 350
+        panel_y1 = 15
+        panel_x2 = width - 15
+        panel_y2 = 205
+
+        self._draw_panel(
+            image,
+            panel_x1,
+            panel_y1,
+            panel_x2,
+            panel_y2,
+            alpha=0.45,
+        )
+
         lines = [
-            f"Left EAR: {result.left_ear:.2f}",
-            f"Right EAR: {result.right_ear:.2f}",
+            "BLINK",
+            f"Left EAR: {result.left_ear:.3f}",
+            f"Right EAR: {result.right_ear:.3f}",
             f"Eye openness: {result.eye_openness:.2f}",
             f"Eyes closed: {result.eyes_closed}",
             f"Blink detected: {result.blink_detected}",
-            f"Blink duration: {result.blink_duration:.2f}s",
-            f"Blink frequency: {result.blink_frequency:.2f} blinks/min",
+            f"Blink duration: {result.blink_duration:.2f} s",
+            f"Blink frequency: {result.blink_frequency:.1f} blinks/min",
             f"Total blinks: {result.total_blinks}",
         ]
-        for i, text in enumerate(lines):
-            cv2.putText(image, text, (x, y + i * line), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
-        return image
+
+        return self._draw_panel_text(
+            image,
+            lines,
+            panel_x1 + 15,
+            panel_y1 + 30,
+            line_height=20,
+            scale=0.50,
+            color=(255, 255, 0),
+        )
 
     def _draw_head_pose_information(self, image, result):
-        x, y, line = 20, 320, 25
+        """Visualiza la orientación de la cabeza en el lateral derecho."""
+
+        height, width = image.shape[:2]
+
+        panel_x1 = width - 350
+        panel_y1 = 220
+        panel_x2 = width - 15
+        panel_y2 = 365
+
+        self._draw_panel(
+            image,
+            panel_x1,
+            panel_y1,
+            panel_x2,
+            panel_y2,
+            alpha=0.45,
+        )
+
         lines = [
-            f"Yaw: {result.yaw:.1f}",
-            f"Pitch: {result.pitch:.1f}",
-            f"Roll: {result.roll:.1f}",
+            "HEAD POSE",
+            f"Yaw: {result.yaw:.1f} deg",
+            f"Pitch: {result.pitch:.1f} deg",
+            f"Roll: {result.roll:.1f} deg",
             f"Valid: {result.pose_valid}",
         ]
-        for i, text in enumerate(lines):
-            cv2.putText(image, text, (x, y + i * line), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-        return image
+
+        return self._draw_panel_text(
+            image,
+            lines,
+            panel_x1 + 15,
+            panel_y1 + 30,
+            line_height=25,
+            scale=0.55,
+            color=(255, 255, 0),
+        )
+
+    def _draw_fatigue_information(self, image, result):
+        """Visualiza la evaluación de fatiga en el lateral derecho."""
+
+        height, width = image.shape[:2]
+
+        panel_x1 = width - 350
+        panel_y1 = 380
+        panel_x2 = width - 15
+        panel_y2 = min(height - 15, 650)
+
+        self._draw_panel(
+            image,
+            panel_x1,
+            panel_y1,
+            panel_x2,
+            panel_y2,
+            alpha=0.45,
+        )
+
+        lines = [
+            "FATIGUE",
+            f"Level: {result.fatigue_level}",
+            f"Score: {result.fatigue_score:.2f}",
+            f"Eye openness: {result.eye_openness:.2f}",
+            f"Blink frequency: {result.blink_frequency:.1f} blinks/min",
+            f"Expression: {result.facial_expression}",
+            f"Head pitch: {result.head_pitch:.1f} deg",
+            f"Nodding score: {result.head_nodding_score:.2f}",
+            f"Eye fatigue: {result.eye_openness_fatigued}",
+            f"Blink fatigue: {result.blink_frequency_fatigued}",
+            f"Expression fatigue: {result.facial_expression_fatigued}",
+            f"Nodding fatigue: {result.head_nodding_fatigued}",
+        ]
+
+        return self._draw_panel_text(
+            image,
+            lines,
+            panel_x1 + 15,
+            panel_y1 + 30,
+            line_height=21,
+            scale=0.48,
+            color=(0, 255, 255),
+        )
 
     def _draw_attention_information(self, image, result):
-        x, y, line = 20, 440, 25
+        """Visualiza la información de atención en el lateral izquierdo."""
+
+        panel_x1 = 15
+        panel_y1 = 300
+        panel_x2 = 350
+        panel_y2 = 475
+
+        self._draw_panel(
+            image,
+            panel_x1,
+            panel_y1,
+            panel_x2,
+            panel_y2,
+            alpha=0.45,
+        )
+
         lines = [
-            f"Attention: {result.attention_target}",
+            "ATTENTION",
+            f"Target: {result.attention_target}",
             f"Score: {result.attention_score:.2f}",
             f"Task: {result.task_attention}",
             f"HMI: {result.hmi_attention}",
             f"Distracted: {result.distracted}",
         ]
-        for i, text in enumerate(lines):
-            cv2.putText(image, text, (x, y + i * line), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
-        return image
+
+        return self._draw_panel_text(
+            image,
+            lines,
+            panel_x1 + 15,
+            panel_y1 + 30,
+            line_height=27,
+            scale=0.55,
+            color=(0, 255, 255),
+        )
 
     def _draw_expression_information(self, image, result):
-        x, y, line = 20, 40, 24
+        """Visualiza la información de expresión en el lateral izquierdo."""
+
+        panel_x1 = 15
+        panel_y1 = 15
+        panel_x2 = 350
+        panel_y2 = 275
+
+        self._draw_panel(
+            image,
+            panel_x1,
+            panel_y1,
+            panel_x2,
+            panel_y2,
+            alpha=0.45,
+        )
+
         lines = [
+            "EXPRESSION",
             f"Expression: {result.expression}",
             f"Confidence: {result.confidence:.2f}",
             f"Smile: {result.smile_score:.2f}",
@@ -605,28 +808,16 @@ class OperatorFatigueNode(Node):
             f"Fatigued: {result.fatigued_score:.2f}",
             f"Yawn: {result.yawn_score:.2f}",
         ]
-        for i, text in enumerate(lines):
-            cv2.putText(image, text, (x, y + i * line), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 255), 2)
-        return image
 
-    def _draw_fatigue_information(self, image, result):
-        x, y, line = 700, 280, 25
-        lines = [
-            f"Fatigue: {result.fatigue_level}",
-            f"Fatigue score: {result.fatigue_score:.2f}",
-            f"Eye openness: {result.eye_openness:.2f}",
-            f"Blink frequency: {result.blink_frequency:.2f}",
-            f"Expression: {result.facial_expression}",
-            f"Head pitch: {result.head_pitch:.1f}",
-            f"Nodding score: {result.head_nodding_score:.2f}",
-            f"Eye fatigue: {result.eye_openness_fatigued}",
-            f"Blink fatigue: {result.blink_frequency_fatigued}",
-            f"Expression fatigue: {result.facial_expression_fatigued}",
-            f"Nodding fatigue: {result.head_nodding_fatigued}",
-        ]
-        for i, text in enumerate(lines):
-            cv2.putText(image, text, (x, y + i * line), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 0), 2)
-        return image
+        return self._draw_panel_text(
+            image,
+            lines,
+            panel_x1 + 15,
+            panel_y1 + 28,
+            line_height=22,
+            scale=0.49,
+            color=(0, 255, 255),
+        )
 
     def _draw_no_operator(self, image):
         cv2.putText(image, "No operator detected", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
