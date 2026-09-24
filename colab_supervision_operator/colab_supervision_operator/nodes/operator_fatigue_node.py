@@ -7,7 +7,11 @@ Este nodo:
 - Captura imágenes desde una cámara RGB.
 - Permite visualizar la imagen mediante un parámetro.
 - Ejecuta los módulos de percepción del operador.
-- Analiza fatiga, parpadeo, expresión, postura de cabeza y atención.
+- Detecta personas mediante YOLO.
+- Realiza seguimiento mediante PersonTracker.
+- Detecta landmarks faciales mediante MediaPipe Face Landmarker.
+- Analiza parpadeos mediante BlinkAnalyzer.
+- Permite visualizar frecuencia de parpadeo, total de parpadeos y apertura ocular.
 """
 
 import cv2
@@ -24,7 +28,9 @@ from colab_supervision_operator.perception.attention_analyzer import AttentionAn
 from colab_supervision_operator.perception.person_tracker import PersonTracker
 from colab_supervision_operator.perception.face_landmark_detector import FaceLandmarkDetector
 from colab_supervision_operator.perception.person_detector import PersonDetector
+
 from ament_index_python.packages import get_package_share_directory
+
 
 class OperatorFatigueNode(Node):
 
@@ -41,7 +47,7 @@ class OperatorFatigueNode(Node):
         package_share = get_package_share_directory(
             "colab_supervision_operator"
         )
-        
+
         default_face_model = (
             f"{package_share}/models/face_landmarker.task"
         )
@@ -85,6 +91,15 @@ class OperatorFatigueNode(Node):
 
         self.declare_parameter(
             "points_face",
+            False
+        )
+
+        # ----------------------------------------------------
+        # Visualización datos de parpadeo
+        # ----------------------------------------------------
+
+        self.declare_parameter(
+            "visualizar_blink",
             False
         )
 
@@ -159,6 +174,10 @@ class OperatorFatigueNode(Node):
             "points_face"
         ).value
 
+        self._visualizar_blink = self.get_parameter(
+            "visualizar_blink"
+        ).value
+
         # ----------------------------------------------------
         # YOLO
         # ----------------------------------------------------
@@ -180,7 +199,6 @@ class OperatorFatigueNode(Node):
         ).value
 
         if yolo_device == "":
-
             yolo_device = None
 
         # ----------------------------------------------------
@@ -238,6 +256,10 @@ class OperatorFatigueNode(Node):
         )
 
         self.get_logger().info(
+            f"Visualización Blink: {self._visualizar_blink}"
+        )
+
+        self.get_logger().info(
             f"Modelo YOLO: {yolo_model}"
         )
 
@@ -268,13 +290,9 @@ class OperatorFatigueNode(Node):
         try:
 
             self._person_detector = PersonDetector(
-
                 model_path=yolo_model,
-
                 confidence_threshold=yolo_confidence,
-
                 image_size=yolo_imgsz,
-
                 device=yolo_device,
             )
 
@@ -317,13 +335,10 @@ class OperatorFatigueNode(Node):
 
             self._face_landmark_detector = (
                 FaceLandmarkDetector(
-
                     model_path=face_model,
-
                     min_detection_confidence=(
                         face_detection_confidence
                     ),
-
                     min_tracking_confidence=(
                         face_tracking_confidence
                     ),
@@ -343,6 +358,28 @@ class OperatorFatigueNode(Node):
         self.get_logger().info(
             "FaceLandmarkDetector "
             "inicializado correctamente."
+        )
+
+        # ====================================================
+        # BLINK ANALYZER
+        # ====================================================
+
+        self.get_logger().info(
+            "Inicializando BlinkAnalyzer..."
+        )
+
+        self._blink_analyzer = BlinkAnalyzer(
+            eye_closed_threshold=0.23,
+            min_closed_frames=2,
+            max_closed_frames=14,
+            fps=float(self._camera_fps),
+            frequency_window_seconds=60.0,
+            openness_min_ear=0.10,
+            openness_max_ear=0.35,
+        )
+
+        self.get_logger().info(
+            "BlinkAnalyzer inicializado correctamente."
         )
 
         # ====================================================
@@ -507,7 +544,6 @@ class OperatorFatigueNode(Node):
         # ----------------------------------------------------
 
         if self._camera is None:
-
             return
 
         ret, frame = self._camera.read()
@@ -578,6 +614,8 @@ class OperatorFatigueNode(Node):
 
         if not tracking_result.person_detected:
 
+            self._blink_analyzer.reset()
+
             self._draw_no_operator(
                 display_frame
             )
@@ -597,6 +635,8 @@ class OperatorFatigueNode(Node):
         )
 
         if primary_person is None:
+
+            self._blink_analyzer.reset()
 
             self._draw_no_operator(
                 display_frame
@@ -620,17 +660,11 @@ class OperatorFatigueNode(Node):
         # ====================================================
         # FACE LANDMARKS
         # ====================================================
+
+        # En esta implementación se utiliza el frame completo.
         #
-        # En esta primera implementación utilizamos el frame
-        # completo.
-        #
-        # Por lo tanto, los landmarks generados por MediaPipe
-        # ya están en coordenadas de la imagen completa.
-        #
-        # Esto evita tener que transformar las coordenadas
-        # provenientes de un recorte del operador.
-        #
-        # ====================================================
+        # Los landmarks generados por MediaPipe ya están en
+        # coordenadas de la imagen completa.
 
         try:
 
@@ -647,6 +681,8 @@ class OperatorFatigueNode(Node):
                 f"{e}"
             )
 
+            self._blink_analyzer.reset()
+
             self._show_frame(
                 display_frame
             )
@@ -659,13 +695,56 @@ class OperatorFatigueNode(Node):
 
         if face_result.face_detected:
 
+            # ------------------------------------------------
+            # BLINK ANALYZER
+            # ------------------------------------------------
+
+            try:
+
+                blink_result = (
+                    self._blink_analyzer.update(
+                        face_result.left_eye_points,
+                        face_result.right_eye_points,
+                    )
+                )
+
+            except Exception as e:
+
+                self.get_logger().error(
+                    "Error en BlinkAnalyzer: "
+                    f"{e}"
+                )
+
+                blink_result = None
+
+            # ------------------------------------------------
+            # Información facial
+            # ------------------------------------------------
+
             self._draw_face_information(
                 display_frame,
                 face_result,
                 primary_person
             )
 
+            # ------------------------------------------------
+            # Información de parpadeo
+            # ------------------------------------------------
+
+            if (
+                self._visualizar_blink
+                and blink_result is not None
+                and blink_result.valid
+            ):
+
+                self._draw_blink_information(
+                    display_frame,
+                    blink_result
+                )
+
         else:
+
+            self._blink_analyzer.reset()
 
             self._draw_no_face(
                 display_frame,
@@ -815,6 +894,128 @@ class OperatorFatigueNode(Node):
             )
 
     # ========================================================
+    # DIBUJAR INFORMACIÓN DE PARPADEO
+    # ========================================================
+
+    def _draw_blink_information(
+        self,
+        image,
+        blink_result,
+    ):
+        """
+        Visualiza los datos principales generados por BlinkAnalyzer.
+
+        Se muestran:
+        - EAR del ojo izquierdo.
+        - EAR del ojo derecho.
+        - Apertura ocular.
+        - Frecuencia de parpadeo.
+        - Total de parpadeos.
+        """
+
+        x = 20
+        y = 100
+        line_spacing = 30
+
+        # ----------------------------------------------------
+        # EAR ojo izquierdo
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Left EAR: "
+                f"{blink_result.left_ear:.3f}"
+            ),
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # EAR ojo derecho
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Right EAR: "
+                f"{blink_result.right_ear:.3f}"
+            ),
+            (
+                x,
+                y + line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Apertura ocular
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Eye openness: "
+                f"{blink_result.eye_openness:.2f}"
+            ),
+            (
+                x,
+                y + 2 * line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+        # ----------------------------------------------------
+        # Frecuencia de parpadeo
+        # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Blink frequency: "
+                f"{blink_result.blink_frequency:.1f} "
+                f"blinks/min"
+            ),
+            (
+                x,
+                y + 3 * line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+    # ----------------------------------------------------
+    # Total de parpadeos
+    # ----------------------------------------------------
+
+        cv2.putText(
+            image,
+            (
+                f"Total blinks: "
+                f"{blink_result.total_blinks}"
+            ),
+            (
+                x,
+                y + 4 * line_spacing
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+    # ========================================================
     # DIBUJAR CUANDO NO HAY OPERADOR
     # ========================================================
 
@@ -869,7 +1070,6 @@ class OperatorFatigueNode(Node):
     ):
 
         if not self._visualizar:
-
             return
 
         cv2.imshow(
