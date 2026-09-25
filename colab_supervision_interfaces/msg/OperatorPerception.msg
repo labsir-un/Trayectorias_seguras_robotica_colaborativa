@@ -1,16 +1,50 @@
-bool person_detected # Deteccion of a person in the scene
-bool person_visible # Deteccion of a person in the scene with a clear view of the face
+# ============================================================
+# OperatorPerception.msg
+# Estado perceptual del operador
+# ============================================================
 
-float32 eye_openness # 0.0 to 1.0 porcentage of eye openness
-float32 blink_frequency # 0.0 to 1.0 porcentage of blink frequency
+bool person_detected
+# True: se detectó una persona en la escena
 
-string facial_expression # facial expression detected in the scene (neutral, happy, sad, angry, surprised, disgusted, fearful)
+bool person_visible
+# True: se detectó una persona y existe una observación facial válida
 
-float32 head_yaw # angle of the head in radians, positive to the right, negative to the left
-float32 head_pitch # angle of the head in radians, positive up, negative down
-float32 head_roll # angle of the head in radians, positive to the right, negative to the left
+float32 eye_openness
+# Apertura ocular normalizada [0.0, 1.0]
 
-string attention_target # target of the attention of the operator (task, HMI, other)
-float32 attention_score # 0.0 to 1.0 porcentage of attention score
+float32 blink_frequency
+# Frecuencia de parpadeo en blinks/min
 
-float32 fatigue_score # 0.0 to 1.0 porcentage of fatigue score, based on eye openness, blink frequency and head pose
+bool blink_detected
+# True durante la detección de un parpadeo
+
+string facial_expression
+# Expresión facial detectada:
+# neutral, smile, frown, surprise, sleepy, tired, fatigued, yawn, unknown
+
+float32 head_yaw
+# Ángulo yaw de la cabeza en radianes
+# positivo: derecha / negativo: izquierda
+
+float32 head_pitch
+# Ángulo pitch de la cabeza en radianes
+# positivo: arriba / negativo: abajo
+
+float32 head_roll
+# Ángulo roll de la cabeza en radianes
+# positivo: derecha / negativo: izquierda
+
+float32 head_nodding_score
+# Indicador normalizado de cabeceo [0.0, 1.0]
+
+string attention_target
+# Objetivo de atención: task, HMI, other, unknown
+
+float32 attention_score
+# Nivel de atención normalizado [0.0, 1.0]
+
+float32 fatigue_score
+# Nivel de fatiga normalizado [0.0, 1.0]
+
+string fatigue_level
+# Nivel de fatiga: LOW, MEDIUM, HIGH, UNKNOWN

@@ -3,10 +3,12 @@
 """ROS 2 node for RGB-based operator perception."""
 
 import cv2
+import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
+from colab_supervision_interfaces.msg import OperatorPerception
 
 from colab_supervision_operator.perception.fatigue_analyzer import FatigueAnalyzer
 from colab_supervision_operator.perception.blink_analyzer import BlinkAnalyzer
@@ -202,6 +204,19 @@ class OperatorFatigueNode(Node):
             head_nod_max_reversals=int(self.get_parameter("head_nod_max_reversals").value),
         )
 
+        # ====================================================
+        # PUBLICACIÓN DEL ESTADO DEL OPERADOR
+        # ====================================================
+        self._state_publisher = self.create_publisher(
+            OperatorPerception,
+            "/state_operator",
+            10,
+        )
+
+        # Contador de fotogramas para publicar cada 3 frames.
+        self._frame_counter = 0
+        self._state_publish_period = 3
+
         timer_period = 1.0 / self._camera_fps
         self._timer = self.create_timer(timer_period, self._process_frame)
 
@@ -242,174 +257,448 @@ class OperatorFatigueNode(Node):
             raise RuntimeError("La cámara fue abierta, pero no fue posible capturar el primer frame.")
 
     def _process_frame(self):
-        if self._camera is None:
-            return
+        """
+        Captura y procesa un fotograma.
 
-        ret, frame = self._camera.read()
-        if not ret or frame is None:
-            self.get_logger().warning("No fue posible obtener un frame.")
-            return
+        El estado del operador se publica en /state_operator
+        cada tres fotogramas procesados.
+        """
 
-        display_frame = frame.copy()
+        self._frame_counter += 1
 
-        try:
-            persons = self._detect_persons(frame)
-            tracking_result = self._person_tracker.update(persons)
-        except Exception as e:
-            self.get_logger().error(f"Error en detección/tracking: {e}")
-            self._show_frame(display_frame)
-            return
+        # ----------------------------------------------------
+        # Estado por defecto del fotograma actual
+        # ----------------------------------------------------
+        person_detected = False
+        person_visible = False
 
-        if not tracking_result.person_detected:
-            self._reset_temporal_analyzers()
-            self._draw_no_operator(display_frame)
-            self._show_frame(display_frame)
-            return
-
-        primary_person = self._person_tracker.get_primary_person()
-        if primary_person is None:
-            self._reset_temporal_analyzers()
-            self._draw_no_operator(display_frame)
-            self._show_frame(display_frame)
-            return
-
-        self._draw_person(display_frame, primary_person)
-
-        face_input = frame
-        roi_transform = None
-        roi_data = None
-
-        if self._face_roi_enabled:
-            roi_data = self._extract_face_roi(frame, primary_person)
-            if roi_data is not None:
-                face_input = roi_data["image"]
-                roi_transform = roi_data["transform"]
-                if self._visualizar_face_roi:
-                    self._draw_face_roi(display_frame, roi_data)
-
-        try:
-            face_result = self._face_landmark_detector.update(face_input)
-            if face_result.face_detected and roi_transform is not None:
-                self._restore_face_coordinates(face_result, roi_transform)
-        except Exception as e:
-            self.get_logger().error(f"Error en FaceLandmarkDetector: {e}")
-            self._show_frame(display_frame)
-            return
-
-        if not face_result.face_detected:
-            self._reset_temporal_analyzers()
-            self._draw_no_face(display_frame, primary_person)
-            self._show_frame(display_frame)
-            return
-
-        display_frame = self._draw_face_information(display_frame, face_result)
-
-        # ====================================================
-        # BLINK
-        # ====================================================
         blink_result = None
-        if face_result.left_eye_points is not None and face_result.right_eye_points is not None:
-            try:
-                blink_result = self._blink_analyzer.update(
-                    face_result.left_eye_points,
-                    face_result.right_eye_points,
-                )
-            except Exception as e:
-                self.get_logger().error(f"Error en BlinkAnalyzer: {e}")
-
-        # ====================================================
-        # HEAD POSE
-        # ====================================================
         head_pose_result = None
-        if face_result.head_pose_points is not None:
-            try:
-                head_pose_result = self._head_pose_estimator.update(
-                    face_result.head_pose_points,
-                    (frame.shape[1], frame.shape[0]),
-                )
-            except Exception as e:
-                self.get_logger().error(f"Error en HeadPoseEstimator: {e}")
-
-        # ====================================================
-        # ATTENTION
-        # ====================================================
         attention_result = None
-        if head_pose_result is not None and head_pose_result.pose_valid:
-            try:
-                attention_result = self._attention_analyzer.update(
-                    head_pose_result.yaw,
-                    head_pose_result.pitch,
-                    head_pose_result.roll,
-                )
-            except Exception as e:
-                self.get_logger().error(f"Error en AttentionAnalyzer: {e}")
-
-        # ====================================================
-        # EXPRESSION
-        # ====================================================
         expression_result = None
-        if face_result.face_blendshapes:
-            try:
-                expression_result = self._expression_analyzer.update(
-                    face_result.face_blendshapes
-                )
-            except Exception as e:
-                self.get_logger().error(f"Error en ExpressionAnalyzer: {e}")
-
-        # ====================================================
-        # FATIGUE
-        # ====================================================
         fatigue_result = None
-        if (
-            blink_result is not None
-            and head_pose_result is not None
-            and head_pose_result.pose_valid
-            and expression_result is not None
-        ):
+
+        display_frame = None
+
+        try:
+            if self._camera is None:
+                return
+
+            ret, frame = self._camera.read()
+            if not ret or frame is None:
+                self.get_logger().warning("No fue posible obtener un frame.")
+                return
+
+            display_frame = frame.copy()
+
+            # ====================================================
+            # DETECCIÓN Y SEGUIMIENTO DE PERSONA
+            # ====================================================
             try:
-                timestamp = self.get_clock().now().nanoseconds / 1e9
-                fatigue_result = self._fatigue_analyzer.update(
-                    eye_openness=blink_result.eye_openness,
-                    blink_frequency=blink_result.blink_frequency,
-                    facial_expression=expression_result.expression,
-                    head_pitch=head_pose_result.pitch,
-                    timestamp=timestamp,
-                )
+                persons = self._detect_persons(frame)
+                tracking_result = self._person_tracker.update(persons)
             except Exception as e:
-                self.get_logger().error(f"Error en FatigueAnalyzer: {e}")
+                self.get_logger().error(
+                    f"Error en detección/tracking: {e}"
+                )
+                self._draw_no_operator(display_frame)
+                self._show_frame(display_frame)
+                return
 
-        # ====================================================
-        # VISUALIZACIONES
-        # ====================================================
-        if self._visualizar_blink and blink_result is not None:
-            display_frame = self._draw_blink_information(display_frame, blink_result)
+            person_detected = bool(tracking_result.person_detected)
 
-        if self._visualizar_head_pose and head_pose_result is not None:
-            display_frame = self._draw_head_pose_information(display_frame, head_pose_result)
+            if not person_detected:
+                self._reset_temporal_analyzers()
+                self._draw_no_operator(display_frame)
+                self._show_frame(display_frame)
+                return
 
-        if self._visualizar_pose_axes and head_pose_result is not None and head_pose_result.pose_valid:
+            primary_person = self._person_tracker.get_primary_person()
+
+            if primary_person is None:
+                self._reset_temporal_analyzers()
+                self._draw_no_operator(display_frame)
+                self._show_frame(display_frame)
+                return
+
+            self._draw_person(display_frame, primary_person)
+
+            # ====================================================
+            # ROI FACIAL
+            # ====================================================
+            face_input = frame
+            roi_transform = None
+            roi_data = None
+
+            if self._face_roi_enabled:
+                roi_data = self._extract_face_roi(
+                    frame,
+                    primary_person,
+                )
+
+                if roi_data is not None:
+                    face_input = roi_data["image"]
+                    roi_transform = roi_data["transform"]
+
+                    if self._visualizar_face_roi:
+                        self._draw_face_roi(
+                            display_frame,
+                            roi_data,
+                        )
+
+            # ====================================================
+            # DETECCIÓN FACIAL
+            # ====================================================
             try:
-                display_frame = self._head_pose_estimator.draw_pose_axes(
+                face_result = self._face_landmark_detector.update(
+                    face_input
+                )
+
+                if (
+                    face_result.face_detected
+                    and roi_transform is not None
+                ):
+                    self._restore_face_coordinates(
+                        face_result,
+                        roi_transform,
+                    )
+
+            except Exception as e:
+                self.get_logger().error(
+                    f"Error en FaceLandmarkDetector: {e}"
+                )
+                self._show_frame(display_frame)
+                return
+
+            person_visible = bool(face_result.face_detected)
+
+            if not person_visible:
+                self._reset_temporal_analyzers()
+                self._draw_no_face(
+                    display_frame,
+                    primary_person,
+                )
+                self._show_frame(display_frame)
+                return
+
+            display_frame = self._draw_face_information(
+                display_frame,
+                face_result,
+            )
+
+            # ====================================================
+            # BLINK
+            # ====================================================
+            if (
+                face_result.left_eye_points is not None
+                and face_result.right_eye_points is not None
+            ):
+                try:
+                    blink_result = self._blink_analyzer.update(
+                        face_result.left_eye_points,
+                        face_result.right_eye_points,
+                    )
+                except Exception as e:
+                    self.get_logger().error(
+                        f"Error en BlinkAnalyzer: {e}"
+                    )
+
+            # ====================================================
+            # HEAD POSE
+            # ====================================================
+            if face_result.head_pose_points is not None:
+                try:
+                    head_pose_result = self._head_pose_estimator.update(
+                        face_result.head_pose_points,
+                        (
+                            frame.shape[1],
+                            frame.shape[0],
+                        ),
+                    )
+                except Exception as e:
+                    self.get_logger().error(
+                        f"Error en HeadPoseEstimator: {e}"
+                    )
+
+            # ====================================================
+            # ATTENTION
+            # ====================================================
+            if (
+                head_pose_result is not None
+                and head_pose_result.pose_valid
+            ):
+                try:
+                    attention_result = self._attention_analyzer.update(
+                        head_pose_result.yaw,
+                        head_pose_result.pitch,
+                        head_pose_result.roll,
+                    )
+                except Exception as e:
+                    self.get_logger().error(
+                        f"Error en AttentionAnalyzer: {e}"
+                    )
+
+            # ====================================================
+            # EXPRESSION
+            # ====================================================
+            if face_result.face_blendshapes:
+                try:
+                    expression_result = (
+                        self._expression_analyzer.update(
+                            face_result.face_blendshapes
+                        )
+                    )
+                except Exception as e:
+                    self.get_logger().error(
+                        f"Error en ExpressionAnalyzer: {e}"
+                    )
+
+            # ====================================================
+            # FATIGUE
+            # ====================================================
+            if (
+                blink_result is not None
+                and head_pose_result is not None
+                and head_pose_result.pose_valid
+                and expression_result is not None
+            ):
+                try:
+                    timestamp = (
+                        self.get_clock().now().nanoseconds
+                        / 1e9
+                    )
+
+                    fatigue_result = self._fatigue_analyzer.update(
+                        eye_openness=blink_result.eye_openness,
+                        blink_frequency=blink_result.blink_frequency,
+                        facial_expression=expression_result.expression,
+                        head_pitch=head_pose_result.pitch,
+                        timestamp=timestamp,
+                    )
+                except Exception as e:
+                    self.get_logger().error(
+                        f"Error en FatigueAnalyzer: {e}"
+                    )
+
+            # ====================================================
+            # VISUALIZACIONES
+            # ====================================================
+            if (
+                self._visualizar_blink
+                and blink_result is not None
+            ):
+                display_frame = self._draw_blink_information(
+                    display_frame,
+                    blink_result,
+                )
+
+            if (
+                self._visualizar_head_pose
+                and head_pose_result is not None
+            ):
+                display_frame = self._draw_head_pose_information(
                     display_frame,
                     head_pose_result,
                 )
-            except AttributeError:
-                pass
-            except Exception as e:
-                self.get_logger().warning(f"Error dibujando ejes de pose: {e}")
 
-        if self._visualizar_attention and attention_result is not None:
-            display_frame = self._draw_attention_information(display_frame, attention_result)
+            if (
+                self._visualizar_pose_axes
+                and head_pose_result is not None
+                and head_pose_result.pose_valid
+            ):
+                try:
+                    display_frame = (
+                        self._head_pose_estimator.draw_pose_axes(
+                            display_frame,
+                            head_pose_result,
+                        )
+                    )
+                except AttributeError:
+                    pass
+                except Exception as e:
+                    self.get_logger().warning(
+                        f"Error dibujando ejes de pose: {e}"
+                    )
 
-        if self._visualizar_expression and expression_result is not None:
-            display_frame = self._draw_expression_information(display_frame, expression_result)
+            if (
+                self._visualizar_attention
+                and attention_result is not None
+            ):
+                display_frame = self._draw_attention_information(
+                    display_frame,
+                    attention_result,
+                )
 
-        if self._visualizar_fatigue and fatigue_result is not None:
-            display_frame = self._draw_fatigue_information(display_frame, fatigue_result)
+            if (
+                self._visualizar_expression
+                and expression_result is not None
+            ):
+                display_frame = self._draw_expression_information(
+                    display_frame,
+                    expression_result,
+                )
 
-        self._show_frame(display_frame)
+            if (
+                self._visualizar_fatigue
+                and fatigue_result is not None
+            ):
+                display_frame = self._draw_fatigue_information(
+                    display_frame,
+                    fatigue_result,
+                )
+
+            self._show_frame(display_frame)
+
+        finally:
+            # Publicar cada tres fotogramas procesados.
+            if (
+                self._frame_counter
+                % self._state_publish_period
+                == 0
+            ):
+                self._publish_operator_state(
+                    person_detected=person_detected,
+                    person_visible=person_visible,
+                    blink_result=blink_result,
+                    head_pose_result=head_pose_result,
+                    attention_result=attention_result,
+                    expression_result=expression_result,
+                    fatigue_result=fatigue_result,
+                )
+
+    def _publish_operator_state(
+        self,
+        person_detected,
+        person_visible,
+        blink_result,
+        head_pose_result,
+        attention_result,
+        expression_result,
+        fatigue_result,
+    ):
+        """
+        Publica el estado perceptual completo del operador.
+
+        El tópico es:
+
+            /state_operator
+
+        Los ángulos internos de HeadPoseEstimator están en grados;
+        para el mensaje ROS se convierten a radianes.
+        """
+
+        msg = OperatorPerception()
+
+        # ----------------------------------------------------
+        # Presencia
+        # ----------------------------------------------------
+        msg.person_detected = bool(person_detected)
+        msg.person_visible = bool(person_visible)
+
+        # ----------------------------------------------------
+        # Ojos / Blink
+        # ----------------------------------------------------
+        if blink_result is not None:
+            msg.eye_openness = float(blink_result.eye_openness)
+            msg.blink_frequency = float(
+                blink_result.blink_frequency
+            )
+            msg.blink_detected = bool(
+                blink_result.blink_detected
+            )
+        else:
+            msg.eye_openness = 0.0
+            msg.blink_frequency = 0.0
+            msg.blink_detected = False
+
+        # ----------------------------------------------------
+        # Expresión
+        # ----------------------------------------------------
+        if expression_result is not None:
+            msg.facial_expression = str(
+                expression_result.expression
+            )
+        else:
+            msg.facial_expression = "unknown"
+
+        # ----------------------------------------------------
+        # Head pose
+        # ----------------------------------------------------
+        if (
+            head_pose_result is not None
+            and head_pose_result.pose_valid
+        ):
+            msg.head_yaw = float(
+                math.radians(head_pose_result.yaw)
+            )
+            msg.head_pitch = float(
+                math.radians(head_pose_result.pitch)
+            )
+            msg.head_roll = float(
+                math.radians(head_pose_result.roll)
+            )
+        else:
+            msg.head_yaw = 0.0
+            msg.head_pitch = 0.0
+            msg.head_roll = 0.0
+
+        # ----------------------------------------------------
+        # Head nodding
+        # ----------------------------------------------------
+        if fatigue_result is not None:
+            msg.head_nodding_score = float(
+                getattr(
+                    fatigue_result,
+                    "head_nodding_score",
+                    0.0,
+                )
+            )
+        else:
+            msg.head_nodding_score = 0.0
+
+        # ----------------------------------------------------
+        # Attention
+        # ----------------------------------------------------
+        if attention_result is not None:
+            msg.attention_target = str(
+                attention_result.attention_target
+            )
+            msg.attention_score = float(
+                attention_result.attention_score
+            )
+        else:
+            msg.attention_target = "unknown"
+            msg.attention_score = 0.0
+
+        # ----------------------------------------------------
+        # Fatigue
+        # ----------------------------------------------------
+        if fatigue_result is not None:
+            msg.fatigue_score = float(
+                fatigue_result.fatigue_score
+            )
+            msg.fatigue_level = str(
+                fatigue_result.fatigue_level
+            )
+        else:
+            msg.fatigue_score = 0.0
+            msg.fatigue_level = "UNKNOWN"
+
+        self._state_publisher.publish(msg)
+
+    # ========================================================
+    # RESET ANALIZADORES TEMPORALES
+    # ========================================================
 
     def _reset_temporal_analyzers(self):
+        """
+        Reinicia los analizadores que mantienen estado temporal.
+
+        Se utiliza cuando no existe una observación válida del
+        operador o del rostro, evitando arrastrar estados de una
+        observación anterior.
+        """
+
         try:
             self._blink_analyzer.reset()
         except Exception:
