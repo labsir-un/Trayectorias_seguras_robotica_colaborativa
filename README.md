@@ -65,6 +65,8 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
   - [Verificar IP de conexión para el socket](#verificar-ip-de-conexión-para-el-socket)
   - [Instalación de programas y dependencias](#instalación-de-programas-y-dependencias)
   - [Configuración de Work Space](#configuración-de-work-space)
+- [Verificación de funcionamiento de cámaras](#verificación-de-funcionamiento-de-cámaras)
+  - [Camara RGB](#camara-rgb)
 - [Agradecimientos](#agradecimientos)
 </details>
 
@@ -175,6 +177,26 @@ Con esto se configura todo el entorno de trabajo, el tema de kitty, los atajaos 
 | **Alias** | `alias TrackingOn='...'` | Va a `~/DetTracking_ws`, activa el entorno virtual (`venv`), asegura `COLCON_IGNORE` y notifica. |
 | **Alias** | `alias TrackingOff='...'` | Desactiva el entorno virtual (`deactivate`) y muestra mensaje de confirmación. |
 | **Variable de entorno** | `export PYTHONPATH=$PYTHONPATH:~/DetTracking_ws/venv/lib/python3.12/site-packages` | Expone paquetes del venv (`mediapipe`, `ultralytics`) para que los nodos de ROS 2 los encuentren. |
+
+
+## Verificación de funcionamiento de cámaras
+
+### Camara RGB
+
+Una vez la cámara RGB este correctamente enlazada con WLS se puede probar el nodo de detección de estado del operador.
+
+>[!NOTE]
+> En caso que la cámara no este coenctada en `/dev/video0` con el parametro `camera_device` se puede cambiar la fuente de video.
+
+```sh
+ros2 run colab_supervision_operator operator_fatigue --ros-args -p yolo_device:=cpu -p visualizar:=true -p points_face:=true -p visualizar_face_roi:=true -p visualizar_blink:=true -p visualizar_head_pose:=true -p visualizar_pose_axes:=true -p visualizar_attention:=true -p visualizar_expression:=true -p visualizar_fatigue:=true
+```
+
+Se abrira una ventana donde podra visualiar todos los eleementos de estado del operador junto a la identificacion de las cajas delimitadores de detección de elementos de la cámara.
+
+<div align="center">
+    <img src="https://imgur.com/JgeioFb.png" alt="Ej_funcionamiento_camara_rgb">
+</div>
 
 
 ## Agradecimientos
