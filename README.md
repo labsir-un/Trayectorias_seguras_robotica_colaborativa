@@ -114,6 +114,9 @@ usbipd attach --wsl --busid <$BUSID>
     <img src="https://imgur.com/vJ7GwkB.png" alt="Ej_config_dispositivo_sub_compoartido">
 </div>
 
+>[!WARNING]
+>Siempre enlace la camara RGB primero para que su puerto por defecto sea `/dev/video0` y notenga que ingresarse en el launch
+
 >[!IMPORTANT] 
 >Cada vez que se reinicie el WLS o se use el recurso compartido se debe verificar que este unido al WLS para su funcionamiento.
 
