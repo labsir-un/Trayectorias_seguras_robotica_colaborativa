@@ -1,0 +1,152 @@
+<launch>
+
+    <!-- ============================================================ -->
+    <!-- REALSENSE D435i                                              -->
+    <!-- ============================================================ -->
+
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+
+        <!-- Identificación de la cámara -->
+        <arg name="camera_namespace" value="IRB140_Cain"/>
+        <arg name="camera_name" value="D435i"/>
+        <arg name="device_type" value="d435i"/>
+
+        <!-- Streams -->
+        <arg name="enable_color" value="true"/>
+        <arg name="enable_depth" value="true"/>
+
+        <!-- Misma resolución espacial para esta primera
+             validación RGB <-> PointCloud2 -->
+        <arg name="rgb_camera.color_profile" value="848x480x30"/>
+        <arg name="depth_module.depth_profile" value="848x480x30"/>
+
+        <!-- Sincronización y alineación -->
+        <arg name="enable_sync" value="true"/>
+        <arg name="align_depth.enable" value="true"/>
+
+        <!-- PointCloud2 organizado -->
+        <arg name="pointcloud.enable" value="true"/>
+        <arg name="pointcloud.ordered_pc" value="true"/>
+        <arg name="pointcloud.allow_no_texture_points" value="false"/>
+
+        <!-- Diagnóstico -->
+        <arg name="diagnostics_period" value="0.1"/>
+
+        <!-- IMU no requerida para esta prueba -->
+        <arg name="enable_gyro" value="false"/>
+        <arg name="enable_accel" value="false"/>
+        <arg name="enable_infra" value="false"/>
+        <arg name="enable_infra1" value="false"/>
+        <arg name="enable_infra2" value="false"/>
+
+    </include>
+
+
+    <!-- ============================================================ -->
+    <!-- TRANSFORMACIONES DE LA CELDA                                 -->
+    <!-- ============================================================ -->
+
+    <!-- D435i respecto al mundo -->
+    <node
+        pkg="tf2_ros"
+        exec="static_transform_publisher"
+        name="camera_base_link"
+        output="screen"
+        args="--x -0.15
+              --y 0.0
+              --z 1.81
+              --yaw -0.0872665
+              --pitch 1.0472
+              --roll -0.174533
+              --frame-id world
+              --child-frame-id D435i_link"/>
+
+    <!-- world coincide con base_link en esta configuración -->
+    <node
+        pkg="tf2_ros"
+        exec="static_transform_publisher"
+        name="camera_base_robot"
+        output="screen"
+        args="--x 0.0
+              --y 0.0
+              --z 0.0
+              --yaw 0.0
+              --pitch 0.0
+              --roll 0.0
+              --frame-id base_link
+              --child-frame-id world"/>
+
+
+    <!-- ============================================================ -->
+    <!-- PRUEBA RGB -> POINTCLOUD2 -> XYZ DEL OPERADOR               -->
+    <!-- ============================================================ -->
+
+    <node
+        pkg="colab_supervision_operator"
+        exec="realsense_operator_xyz_test"
+        name="realsense_operator_xyz_test"
+        output="screen">
+
+        <!-- Topics de la D435i -->
+        <param
+            name="rgb_topic"
+            value="/IRB140_Cain/D435i/color/image_raw"/>
+
+        <param
+            name="pointcloud_topic"
+            value="/IRB140_Cain/D435i/depth/color/points"/>
+
+        <!-- Frame de referencia -->
+        <param
+            name="base_frame"
+            value="base_link"/>
+
+        <!-- YOLO para operador -->
+        <param
+            name="yolo_model"
+            value="yolo26n.pt"/>
+
+        <param
+            name="yolo_confidence"
+            value="0.50"/>
+
+        <param
+            name="yolo_imgsz"
+            value="640"/>
+
+        <!-- GTX 1050 Ti: utilizar CPU con el entorno actual -->
+        <param
+            name="yolo_device"
+            value="cpu"/>
+
+        <!-- Frecuencia de procesamiento -->
+        <param
+            name="processing_rate"
+            value="10.0"/>
+
+        <!-- Máxima separación temporal RGB/PointCloud2 -->
+        <param
+            name="max_rgb_pointcloud_dt"
+            value="0.15"/>
+
+        <!-- Ventana de muestreo 3D alrededor del centro de la bbox -->
+        <param
+            name="sample_half_size"
+            value="8"/>
+
+        <param
+            name="minimum_valid_points"
+            value="10"/>
+
+        <param
+            name="maximum_range"
+            value="5.0"/>
+
+        <!-- Ventana de diagnóstico -->
+        <param
+            name="visualizar"
+            value="true"/>
+
+    </node>
+
+</launch>

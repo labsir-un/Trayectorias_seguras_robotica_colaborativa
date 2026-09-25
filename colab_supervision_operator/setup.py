@@ -31,6 +31,8 @@ setup(
         'console_scripts': [
             "operator_fatigue = colab_supervision_operator.nodes.operator_fatigue:main",
             "camera = colab_supervision_operator.nodes.camera:main",
+            "robot_operator_interaction = colab_supervision_operator.nodes.robot_operator_interaction:main",
+            "realsense_operator_xyz_test = colab_supervision_operator.nodes.realsense_operator_xyz_test:main",
         ],
     },
 )
