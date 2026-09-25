@@ -189,7 +189,7 @@ Una vez la cámara RGB este correctamente enlazada con WLS se puede probar el no
 > En caso que la cámara no este coenctada en `/dev/video0` con el parametro `camera_device` se puede cambiar la fuente de video.
 
 ```sh
-ros2 run colab_supervision_operator operator_fatigue --ros-args -p yolo_device:=cpu -p visualizar:=true -p points_face:=true -p visualizar_face_roi:=true -p visualizar_blink:=true -p visualizar_head_pose:=true -p visualizar_pose_axes:=true -p visualizar_attention:=true -p visualizar_expression:=true -p visualizar_fatigue:=true
+ros2 launch colab_supervision_bringup camara_RGB.launch.xml visualizar:=true visualizar_pose_axes:=true
 ```
 
 Se abrira una ventana donde podra visualiar todos los eleementos de estado del operador junto a la identificacion de las cajas delimitadores de detección de elementos de la cámara.

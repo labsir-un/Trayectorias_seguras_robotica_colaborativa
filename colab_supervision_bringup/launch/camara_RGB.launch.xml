@@ -1,0 +1,49 @@
+<launch>
+
+    <arg name="visualizar" default="false" description="Activa las visualizaciones del nodo"/>
+    <arg name="visualizar_pose_axes" default="false" description="Activa la visualizacion del marco cartesiano cuando se habilita la visualizacion"/>
+
+
+    <group unless="$(var visualizar)">
+        <node pkg="colab_supervision_operator"
+              exec="operator_fatigue"
+              name="operator_fatigue"
+              output="screen">
+
+            <param name="visualizar" value="false"/>
+            <param name="points_face" value="false"/>
+            <param name="visualizar_face_roi" value="false"/>
+            <param name="visualizar_blink" value="false"/>
+            <param name="visualizar_head_pose" value="false"/>
+            <param name="visualizar_pose_axes" value="false"/>
+            <param name="visualizar_attention" value="false"/>
+            <param name="visualizar_expression" value="false"/>
+            <param name="visualizar_fatigue" value="false"/>
+
+        </node>
+    </group>
+
+    <!-- ============================================================ -->
+    <!-- Ejecución CON visualización                                  -->
+    <!-- Todas las pruebas activas excepto marco cartesiano          -->
+    <!-- ============================================================ -->
+    <group if="$(var visualizar)">
+        <node pkg="colab_supervision_operator"
+              exec="operator_fatigue"
+              name="operator_fatigue"
+              output="screen">
+
+            <param name="visualizar" value="true"/>
+            <param name="points_face" value="true"/>
+            <param name="visualizar_face_roi" value="true"/>
+            <param name="visualizar_blink" value="true"/>
+            <param name="visualizar_head_pose" value="true"/>
+            <param name="visualizar_pose_axes" value="$(var visualizar_pose_axes)"/>
+            <param name="visualizar_attention" value="true"/>
+            <param name="visualizar_expression" value="true"/>
+            <param name="visualizar_fatigue" value="true"/>
+
+        </node>
+    </group>
+
+</launch>
