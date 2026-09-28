@@ -2,7 +2,7 @@
 
     <arg name="visualizar" default="false" description="Activa las visualizaciones del nodo"/>
     <arg name="visualizar_pose_axes" default="false" description="Activa la visualizacion del marco cartesiano cuando se habilita la visualizacion"/>
-    <arg name="puerto_usb" default="false" description="Puerto de conexión USB de la cámara"/>
+    <arg name="puerto_usb" default="/dev/video0" description="Puerto de conexión USB de la cámara"/>
 
 
     <group unless="$(var visualizar)">
