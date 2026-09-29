@@ -286,7 +286,7 @@ class CollisionEstimator():
         """
 
         return CollisionResult(
-            distanceb = self._distance,
+            distance = self._distance,
             relative_velocity = self._relative_velocity,
             approach_velocity = self._approach_velocity,
             time_to_collision = self._time_to_collision,

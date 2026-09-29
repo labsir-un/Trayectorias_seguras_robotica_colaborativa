@@ -3,6 +3,9 @@
         <arg name="camera_namespace" value="IRB140_Cain"/>
         <arg name="camera_name" value="D435i"/>
         <arg name="pointcloud.enable" value="true"/>
+        <arg name="align_depth.enable" value="true"/>
+        <arg name="pointcloud.ordered_pc" value="true"/>
+        <arg name="pointcloud.allow_no_texture_points" value="false"/>
         <arg name="device_type" value="d435i"/>
         <arg name="diagnostics_period" value="0.1"/>
     </include>

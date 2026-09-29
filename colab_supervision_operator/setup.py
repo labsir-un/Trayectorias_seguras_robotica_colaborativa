@@ -11,6 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/models', ['models/face_landmarker.task']),
+        ('share/' + package_name + '/models', ['models/abb_irb140_yolo.pt']),
     ],
     install_requires=['setuptools', 
                     'numpy',
@@ -33,6 +34,7 @@ setup(
             "camera = colab_supervision_operator.nodes.camera:main",
             "robot_operator_interaction = colab_supervision_operator.nodes.robot_operator_interaction:main",
             "realsense_operator_xyz_test = colab_supervision_operator.nodes.realsense_operator_xyz_test:main",
+            "realsense_robot_xyz_test = colab_supervision_operator.nodes.realsense_robot_xyz_test:main",
         ],
     },
 )

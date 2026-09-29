@@ -296,11 +296,6 @@ class RealSenseOperatorXYZTest(Node):
             persons = self._person_detector.update(frame)
             tracking_result = self._person_tracker.update(persons)
 
-            self.get_logger().debug(
-                f"YOLO detections recibidas: {len(persons)} | "
-                f"personas validas: {tracking_result.number_of_persons}"
-            )
-
             if tracking_result.person_detected:
                 operator = self._person_tracker.get_primary_person()
                 operator_ok = operator is not None
@@ -788,40 +783,27 @@ class RealSenseOperatorXYZTest(Node):
             )
 
     def _fit_window(self, frame: np.ndarray) -> np.ndarray:
-        """Resize only when necessary for the OpenCV window."""
-        max_w = self._window_width
-        max_h = self._window_height
-
-        h, w = frame.shape[:2]
-
-        scale = min(
-            max_w / max(1, w),
-            max_h / max(1, h),
-            1.0,
-        )
-
-        if scale >= 0.999:
-            return frame
-
-        return cv2.resize(
-            frame,
-            (
-                int(w * scale),
-                int(h * scale),
-            ),
-            interpolation=cv2.INTER_AREA,
-        )
+        """Return the original frame; do not artificially limit its size."""
+        return frame
 
     def _show(self, frame: np.ndarray) -> None:
-        cv2.imshow(
-            "RealSense D435i - Operator XYZ",
-            frame,
-        )
-        cv2.resizeWindow(
-            "RealSense D435i - Operator XYZ",
-            self._window_width,
-            self._window_height,
-        )
+        """Display the diagnostic window as a freely resizable window."""
+
+        window_name = "RealSense D435i - Operator XYZ"
+
+        if not hasattr(self, "_window_created"):
+            cv2.namedWindow(
+                window_name,
+                cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO,
+            )
+            cv2.resizeWindow(
+                window_name,
+                self._window_width,
+                self._window_height,
+            )
+            self._window_created = True
+
+        cv2.imshow(window_name, frame)
 
         key = cv2.waitKey(1) & 0xFF
 

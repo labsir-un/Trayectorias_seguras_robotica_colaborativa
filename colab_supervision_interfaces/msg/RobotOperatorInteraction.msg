@@ -1,14 +1,34 @@
-bool operator_detected # Deteccion of the operator in the scene
+# Estado integrado de percepción e interacción operador-robot
 
-float32 distance # Distance between the operator and the robot
+std_msgs/Header header
 
-float32 operator_velocity # Velocity of the operator
-float32 robot_velocity # Velocity of the robot
-float32 relative_velocity # Relative velocity between the operator and the robot
+bool operator_detected
+bool robot_detected
 
-float32 approach_velocity # Velocity of the operator approaching the robot
+bool operator_position_valid
+bool robot_visual_position_valid
+bool robot_reference_valid
 
-float32 time_to_collision # Time to collision between the operator and the robot, based on the relative velocity and distance
+float32 operator_confidence
+float32 robot_confidence
 
-string interaction_state # State of the interaction between the operator and the robot
-string risk_level # Level of risk associated with the interaction
+geometry_msgs/Point operator_position
+geometry_msgs/Point robot_visual_position
+geometry_msgs/Point robot_reference_position
+
+geometry_msgs/Vector3 operator_velocity
+geometry_msgs/Vector3 robot_velocity
+
+float32 distance
+float32 relative_velocity
+float32 approach_velocity
+
+float32 time_to_collision
+bool time_to_collision_valid
+
+float32 collision_risk_score
+string collision_risk
+bool collision_imminent
+
+bool interaction_valid
+string status
