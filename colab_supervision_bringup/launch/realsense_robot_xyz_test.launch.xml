@@ -1,0 +1,45 @@
+<launch>
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+        <arg name="camera_namespace" value="IRB140_Cain"/>
+        <arg name="camera_name" value="D435i"/>
+        <arg name="device_type" value="d435i"/>
+        <arg name="enable_color" value="true"/>
+        <arg name="enable_depth" value="true"/>
+        <arg name="rgb_camera.color_profile" value="848x480x30"/>
+        <arg name="depth_module.depth_profile" value="848x480x30"/>
+        <arg name="enable_sync" value="true"/>
+        <arg name="align_depth.enable" value="true"/>
+        <arg name="pointcloud.enable" value="true"/>
+        <arg name="pointcloud.ordered_pc" value="true"/>
+        <arg name="pointcloud.allow_no_texture_points" value="false"/>
+        <arg name="diagnostics_period" value="0.1"/>
+        <arg name="enable_gyro" value="false"/>
+        <arg name="enable_accel" value="false"/>
+        <arg name="enable_infra" value="false"/>
+        <arg name="enable_infra1" value="false"/>
+        <arg name="enable_infra2" value="false"/>
+    </include>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_base_link" output="screen"
+          args="--x -0.15 --y 0.0 --z 1.81 --yaw -0.0872665 --pitch 1.0472 --roll -0.174533 --frame-id world --child-frame-id D435i_link"/>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_base_robot" output="screen"
+          args="--x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id world"/>
+
+    <node pkg="colab_supervision_operator" exec="realsense_robot_xyz_test" name="realsense_robot_xyz_test" output="screen">
+        <param name="rgb_topic" value="/IRB140_Cain/D435i/color/image_raw"/>
+        <param name="pointcloud_topic" value="/IRB140_Cain/D435i/depth/color/points"/>
+        <param name="base_frame" value="base_link"/>
+        <param name="robot_model" value="$(find-pkg-share colab_supervision_operator)/models/abb_irb140_yolo.pt"/>
+        <param name="robot_confidence" value="0.50"/>
+        <param name="robot_imgsz" value="640"/>
+        <param name="robot_device" value="cpu"/>
+        <param name="robot_class_id" value="0"/>
+        <param name="processing_rate" value="10.0"/>
+        <param name="max_rgb_pointcloud_dt" value="0.15"/>
+        <param name="pointcloud_sample_half_size" value="8"/>
+        <param name="pointcloud_minimum_valid_points" value="10"/>
+        <param name="pointcloud_maximum_range" value="5.0"/>
+        <param name="visualizar" value="true"/>
+    </node>
+</launch>
