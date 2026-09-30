@@ -48,10 +48,10 @@ class AttentionAnalyzer():
     """
 
     def __init__(self,
-        task_yaw_range: tuple[float, float] = (-45.0, 45.0),
-        task_pitch_range: tuple[float, float] = (-30.0, 30.0),
-        hmi_yaw_range: tuple[float, float] = (-45.0, 45.0),
-        hmi_pitch_range: tuple[float, float] = (-30.0, 30.0),
+        task_yaw_range: tuple[float, float] = (-55.0, -35.0),
+        task_pitch_range: tuple[float, float] = (-5.0, 35.0),
+        hmi_yaw_range: tuple[float, float] = (-70.0, 30.0),
+        hmi_pitch_range: tuple[float, float] = (-50.0, 30.0),
         attention_score_threshold: float = 0.50) -> None:
 
         # --------------------------------------------------

@@ -67,6 +67,7 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
   - [Configuración de Work Space](#configuración-de-work-space)
 - [Verificación de funcionamiento de cámaras](#verificación-de-funcionamiento-de-cámaras)
   - [Camara RGB](#camara-rgb)
+  - [Conectar aplicación SDK y socket de ROS2](#conectar-aplicación-sdk-y-socket-de-ros2)
 - [Agradecimientos](#agradecimientos)
 </details>
 
@@ -201,6 +202,13 @@ Se abrira una ventana donde podra visualiar todos los eleementos de estado del o
     <img src="https://imgur.com/JgeioFb.png" alt="Ej_funcionamiento_camara_rgb">
 </div>
 
+### Conectar aplicación SDK y socket de ROS2
+
+Para conectar el socket ejecuite el siguiente comando. Importante que el `server_ip` coincida con la red asignada al WLS por Windows11.
+
+```sh
+ros2 launch colab_supervision_bringup socket_pcsdk.launch.xml server_ip:="172.22.112.1"
+```
 
 ## Agradecimientos
 
