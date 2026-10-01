@@ -1,26 +1,127 @@
 <launch>
 
-    <arg name="autonome" default="true" description="Modo autónomo completo o consola manual"/>
-    <arg name="launch_rviz" default="true" description="Lanzar RViz2 de solo el robot"/>
-    <arg name="rviz_custom_config" default="true" description="Visualización en rviz"/>
-    <arg name="rviz_config_package" default="colab_supervision_bringup" description="MoveIt configuration package for the robot."/>
-    <arg name="rviz_config" default="abb_irb140_scene_camD435i.rviz" description="nombre de archivo .rviz"/>
-    <arg name="camara_RGB_visualizar" default="true" description="Visualización de la cámara RGB y condicion de operador"/>
-    <arg name="puerto_camara_rgb" default="/dev/video0" description="puerto de conexión USB de la cámara RGB"/>
+    <!-- ============================================================ -->
+    <!-- PARÁMETROS GENERALES                                         -->
+    <!-- ============================================================ -->
 
-    <include file="$(find-pkg-share colab_supervision_bringup)/launch/realsense_D435i.launch.xml"/>
+    <arg
+        name="autonome"
+        default="true"
+        description="Modo autónomo completo o consola manual"/>
 
-    <include file="$(find-pkg-share colab_supervision_bringup)/launch/camara_RGB.launch.xml">
-        <arg name="puerto_usb" value="$(var puerto_camara_rgb)"/>
-        <arg name="visualizar" value="$(var camara_RGB_visualizar)"/>
+    <arg
+        name="launch_rviz"
+        default="true"
+        description="Lanzar RViz2 de solo el robot"/>
+
+    <arg
+        name="rviz_custom_config"
+        default="true"
+        description="Visualización en rviz"/>
+
+    <arg
+        name="rviz_config_package"
+        default="colab_supervision_bringup"
+        description="MoveIt configuration package for the robot."/>
+
+    <arg
+        name="rviz_config"
+        default="abb_irb140_scene_camD435i.rviz"
+        description="Nombre de archivo .rviz"/>
+
+
+    <!-- ============================================================ -->
+    <!-- CÁMARA RGB                                                   -->
+    <!-- ============================================================ -->
+
+    <arg
+        name="camara_RGB_visualizar"
+        default="false"
+        description="Visualización de la cámara RGB y condición del operador"/>
+
+    <arg
+        name="puerto_camara_rgb"
+        default="/dev/video0"
+        description="Puerto de conexión USB de la cámara RGB"/>
+
+
+    <!-- ============================================================ -->
+    <!-- ROBOT OPERATOR INTERACTION                                   -->
+    <!-- ============================================================ -->
+
+    <arg
+        name="robot_operator_interaction_visualizar"
+        default="false"
+        description="Visualización del nodo de interacción operador-robot"/>
+
+
+    <!-- ============================================================ -->
+    <!-- REALSENSE D435i                                               -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/realsense_D435i.launch.xml"/>
+
+
+    <!-- ============================================================ -->
+    <!-- CÁMARA RGB EMEET                                             -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/camara_RGB.launch.xml">
+
+        <arg
+            name="puerto_usb"
+            value="$(var puerto_camara_rgb)"/>
+
+        <arg
+            name="visualizar"
+            value="$(var camara_RGB_visualizar)"/>
+
     </include>
 
-    <include file="$(find-pkg-share colab_supervision_bringup)/launch/abb_irb_140.launch.xml">
-        <arg name="autonome" value="$(var autonome)"/>
-        <arg name="launch_rviz" value="$(var launch_rviz)"/>
-        <arg name="rviz_custom_config" value="$(var rviz_custom_config)"/>
-        <arg name="rviz_config_package" value="$(var rviz_config_package)"/>
-        <arg name="rviz_config" value="$(var rviz_config)"/>
+
+    <!-- ============================================================ -->
+    <!-- ABB IRB 140                                                   -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/abb_irb_140.launch.xml">
+
+        <arg
+            name="autonome"
+            value="$(var autonome)"/>
+
+        <arg
+            name="launch_rviz"
+            value="$(var launch_rviz)"/>
+
+        <arg
+            name="rviz_custom_config"
+            value="$(var rviz_custom_config)"/>
+
+        <arg
+            name="rviz_config_package"
+            value="$(var rviz_config_package)"/>
+
+        <arg
+            name="rviz_config"
+            value="$(var rviz_config)"/>
+
+    </include>
+
+
+    <!-- ============================================================ -->
+    <!-- ROBOT OPERATOR INTERACTION                                   -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/robot_operator_interaction.launch.xml">
+
+        <arg
+            name="visualizar"
+            value="$(var robot_operator_interaction_visualizar)"/>
+
     </include>
 
 </launch>

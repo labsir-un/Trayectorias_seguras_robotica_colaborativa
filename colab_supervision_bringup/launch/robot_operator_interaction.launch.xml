@@ -1,0 +1,56 @@
+<launch>
+
+    <!-- ============================================================ -->
+    <!-- VISUALIZATION                                                -->
+    <!-- ============================================================ -->
+
+    <!--
+        false: ejecuta el nodo sin abrir la ventana de visualización.
+
+        true: habilita todas las vistas disponibles en el nodo:
+            - detecciones 2D
+            - posiciones 3D
+            - información de interacción
+    -->
+    <arg
+        name="visualizar"
+        default="false"
+        description="Habilita todas las vistas de visualización del nodo"/>
+
+
+    <!-- ============================================================ -->
+    <!-- ROBOT OPERATOR INTERACTION                                   -->
+    <!-- ============================================================ -->
+
+    <node
+        pkg="colab_supervision_operator"
+        exec="robot_operator_interaction"
+        name="robot_operator_interaction"
+        output="screen">
+
+        <!--
+            El resto de parámetros conserva los valores por defecto
+            definidos directamente en robot_operator_interaction.py.
+        -->
+
+        <!-- Control general de visualización -->
+        <param
+            name="visualizar"
+            value="$(var visualizar)"/>
+
+        <!-- Todas las vistas siguen el parámetro general -->
+        <param
+            name="visualizar_detecciones"
+            value="$(var visualizar)"/>
+
+        <param
+            name="visualizar_posiciones_3d"
+            value="$(var visualizar)"/>
+
+        <param
+            name="visualizar_interaccion"
+            value="$(var visualizar)"/>
+
+    </node>
+
+</launch>
