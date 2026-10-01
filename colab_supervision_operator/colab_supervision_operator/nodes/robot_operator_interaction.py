@@ -447,6 +447,7 @@ class RobotOperatorInteractionNode(Node):
             robot_reference_velocity,
             collision_result,
             status,
+            robot_valid_points,
         )
 
         if self._visualizar:
