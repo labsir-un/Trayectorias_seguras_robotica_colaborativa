@@ -10,15 +10,16 @@ Pipeline:
         -> PointCloud2
         -> 3D positions
         -> TF2 -> base_link
-        -> robot reference (tool0) from TF
+        -> temporal filtering
         -> CollisionEstimator
         -> /robot_operator_interaction
 
-The YOLO + PointCloud robot position is a visual observation.
-The collision estimator uses the configurable robot_reference_frame
-(default: tool0) because it is tied to the robot kinematic state.
+The operator and robot positions are obtained from RGB-D perception
+and expressed in the robot base frame. The robot position is the
+3D visual observation of the detected ABB IRB 140.
 """
 
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -31,7 +32,7 @@ from rclpy.qos import qos_profile_sensor_data
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Point, PointStamped, Vector3
-from sensor_msgs.msg import Image, JointState, PointCloud2
+from sensor_msgs.msg import Image, PointCloud2
 
 import tf2_ros
 from tf2_geometry_msgs import do_transform_point
@@ -41,8 +42,6 @@ from colab_supervision_operator.perception.person_detector import PersonDetector
 from colab_supervision_operator.perception.person_tracker import PersonTracker
 from colab_supervision_operator.perception.depth_person_detector import DepthPersonDetector
 from colab_supervision_operator.perception.robot_detector import RobotDetector
-from colab_supervision_operator.perception.pointcloud_object_detector import PointCloudObjectDetector
-from colab_supervision_operator.perception.robot_state import RobotState
 from colab_supervision_operator.perception.collision_estimator import CollisionEstimator
 
 
@@ -57,17 +56,16 @@ class RobotOperatorInteractionNode(Node):
         # ============================================================
         self.declare_parameter("rgb_topic", "/IRB140_Cain/D435i/color/image_raw")
         self.declare_parameter("pointcloud_topic", "/IRB140_Cain/D435i/depth/color/points")
-        self.declare_parameter("joint_states_topic", "/joint_states")
         self.declare_parameter("interaction_topic", "/robot_operator_interaction")
         self.declare_parameter("robot_base_frame", "base_link")
-        self.declare_parameter("robot_reference_frame", "tool0")
 
         # ============================================================
         # PROCESSING
         # ============================================================
         self.declare_parameter("processing_rate", 10.0)
         self.declare_parameter("max_sensor_age", 1.0)
-        self.declare_parameter("max_rgb_pointcloud_dt", 0.15)
+        self.declare_parameter("max_rgb_pointcloud_dt", 0.10)
+        self.declare_parameter("position_filter_alpha", 0.35)
 
         # ============================================================
         # OPERATOR YOLO
@@ -125,14 +123,13 @@ class RobotOperatorInteractionNode(Node):
         # ============================================================
         self._rgb_topic = str(self.get_parameter("rgb_topic").value)
         self._pointcloud_topic = str(self.get_parameter("pointcloud_topic").value)
-        self._joint_states_topic = str(self.get_parameter("joint_states_topic").value)
         self._interaction_topic = str(self.get_parameter("interaction_topic").value)
         self._robot_base_frame = str(self.get_parameter("robot_base_frame").value)
-        self._robot_reference_frame = str(self.get_parameter("robot_reference_frame").value)
 
         self._processing_rate = float(self.get_parameter("processing_rate").value)
         self._max_sensor_age = float(self.get_parameter("max_sensor_age").value)
         self._max_rgb_pointcloud_dt = float(self.get_parameter("max_rgb_pointcloud_dt").value)
+        self._position_filter_alpha = float(self.get_parameter("position_filter_alpha").value)
 
         self._visualizar = bool(self.get_parameter("visualizar").value)
         self._visualizar_detecciones = bool(self.get_parameter("visualizar_detecciones").value)
@@ -143,6 +140,8 @@ class RobotOperatorInteractionNode(Node):
 
         if self._processing_rate <= 0.0:
             raise ValueError("processing_rate must be greater than zero")
+        if not 0.0 < self._position_filter_alpha <= 1.0:
+            raise ValueError("position_filter_alpha must be in the interval (0, 1]")
 
         # ============================================================
         # PERCEPTION MODULES
@@ -169,18 +168,11 @@ class RobotOperatorInteractionNode(Node):
             robot_class_id=int(self.get_parameter("robot_class_id").value),
         )
 
-        self._pointcloud_detector = PointCloudObjectDetector(
-            sample_half_size=int(self.get_parameter("pointcloud_sample_half_size").value),
-            minimum_valid_points=int(self.get_parameter("pointcloud_minimum_valid_points").value),
-            maximum_range=float(self.get_parameter("pointcloud_maximum_range").value),
-        )
-
         self._depth_person_detector = DepthPersonDetector(
             minimum_confidence=float(self.get_parameter("operator_depth_minimum_confidence").value),
             maximum_detection_distance=float(self.get_parameter("operator_depth_maximum_distance").value),
         )
 
-        self._robot_state = RobotState(number_of_joints=6)
         self._collision_estimator = CollisionEstimator(
             warning_distance=float(self.get_parameter("warning_distance").value),
             critical_distance=float(self.get_parameter("critical_distance").value),
@@ -215,23 +207,17 @@ class RobotOperatorInteractionNode(Node):
             qos_profile_sensor_data,
         )
 
-        self.create_subscription(
-            JointState,
-            self._joint_states_topic,
-            self._joint_state_callback,
-            10,
-        )
-
         # ============================================================
         # STATE
         # ============================================================
-        self._latest_rgb: Optional[Image] = None
-        self._latest_cloud: Optional[PointCloud2] = None
-        self._rgb_receive_time: Optional[float] = None
-        self._cloud_receive_time: Optional[float] = None
+        self._rgb_buffer = deque(maxlen=8)
+        self._cloud_buffer = deque(maxlen=8)
 
-        self._last_robot_ref_position: Optional[np.ndarray] = None
-        self._last_robot_ref_time: Optional[float] = None
+        self._filtered_operator_position: Optional[np.ndarray] = None
+        self._filtered_robot_position: Optional[np.ndarray] = None
+        self._last_robot_position: Optional[np.ndarray] = None
+        self._last_robot_position_time: Optional[float] = None
+
         self._last_log_time = 0.0
         self._window_created = False
 
@@ -245,7 +231,6 @@ class RobotOperatorInteractionNode(Node):
         self.get_logger().info(f"RGB: {self._rgb_topic}")
         self.get_logger().info(f"PointCloud2: {self._pointcloud_topic}")
         self.get_logger().info(f"Robot model: {robot_model}")
-        self.get_logger().info(f"Robot reference: {self._robot_reference_frame}")
         self.get_logger().info(f"Output: {self._interaction_topic}")
         self.get_logger().info(f"Visualization: {self._visualizar}")
         self.get_logger().info("====================================================")
@@ -254,42 +239,53 @@ class RobotOperatorInteractionNode(Node):
     # CALLBACKS
     # ================================================================
     def _rgb_callback(self, msg: Image) -> None:
-        self._latest_rgb = msg
-        self._rgb_receive_time = self._now_seconds()
+        self._rgb_buffer.append((msg, self._now_seconds()))
 
     def _pointcloud_callback(self, msg: PointCloud2) -> None:
-        self._latest_cloud = msg
-        self._cloud_receive_time = self._now_seconds()
+        self._cloud_buffer.append((msg, self._now_seconds()))
 
-    def _joint_state_callback(self, msg: JointState) -> None:
-        if len(msg.position) != 6:
-            self._debug_log(
-                f"Se esperaban 6 articulaciones; se recibieron {len(msg.position)}"
-            )
-            return
+    def _get_synced_pair(self):
+        """Return the newest RGB frame and the closest PointCloud2 by timestamp."""
+        if not self._rgb_buffer or not self._cloud_buffer:
+            return None, None, None, None, None
 
-        positions = np.asarray(msg.position, dtype=float)
-        velocities = (
-            np.asarray(msg.velocity, dtype=float)
-            if len(msg.velocity) == 6
-            else np.zeros(6, dtype=float)
+        rgb_msg, rgb_receive_time = self._rgb_buffer[-1]
+
+        rgb_stamp = self._stamp_seconds(rgb_msg)
+        cloud_msg, cloud_receive_time = min(
+            self._cloud_buffer,
+            key=lambda item: abs(self._stamp_seconds(item[0]) - rgb_stamp),
         )
 
-        try:
-            self._robot_state.update_joint_state(positions, velocities)
-        except Exception as exc:
-            self._debug_log(f"RobotState: {exc}")
+        sensor_dt = abs(
+            rgb_stamp
+            - self._stamp_seconds(cloud_msg)
+        )
+
+        return (
+            rgb_msg,
+            cloud_msg,
+            rgb_receive_time,
+            cloud_receive_time,
+            sensor_dt,
+        )
 
     # ================================================================
     # PROCESSING
     # ================================================================
     def _process_scene(self) -> None:
-        if self._latest_rgb is None or self._latest_cloud is None:
+        (
+            image_msg,
+            cloud,
+            rgb_receive_time,
+            cloud_receive_time,
+            sensor_dt,
+        ) = self._get_synced_pair()
+
+        if image_msg is None or cloud is None:
             self._publish_invalid("WAITING FOR SENSORS")
             return
 
-        image_msg = self._latest_rgb
-        cloud = self._latest_cloud
         now = self._now_seconds()
 
         try:
@@ -303,18 +299,21 @@ class RobotOperatorInteractionNode(Node):
             return
 
         rgb_ok = (
-            self._rgb_receive_time is not None
-            and now - self._rgb_receive_time <= self._max_sensor_age
+            rgb_receive_time is not None
+            and now - rgb_receive_time <= self._max_sensor_age
         )
         cloud_ok = (
-            self._cloud_receive_time is not None
-            and now - self._cloud_receive_time <= self._max_sensor_age
+            cloud_receive_time is not None
+            and now - cloud_receive_time <= self._max_sensor_age
         )
         cloud_organized = cloud.height > 1
-        sensor_dt = abs(
-            self._stamp_seconds(image_msg)
-            - self._stamp_seconds(cloud)
-        )
+
+        if sensor_dt > self._max_rgb_pointcloud_dt:
+            self._publish_invalid("RGB / POINTCLOUD NOT SYNC")
+            self._debug_log(
+                f"RGB/PointCloud2 timestamp difference too high: {sensor_dt:.3f} s"
+            )
+            return
 
         # ------------------------------------------------------------
         # Operator 2D
@@ -352,16 +351,28 @@ class RobotOperatorInteractionNode(Node):
                     operator_xyz_camera,
                     cloud.header.frame_id,
                 )
+                operator_position = self._filter_position(
+                    operator_position,
+                    "operator",
+                )
+
+        if operator_position is None:
+            self._filter_position(None, "operator")
 
         operator_confidence = (
             float(primary_person.confidence)
             if primary_person is not None
             else 0.0
         )
+
+        observation_time = self._stamp_seconds(image_msg)
+        if observation_time <= 0.0:
+            observation_time = now
+
         operator_depth_result = self._depth_person_detector.update(
             position=operator_position,
             confidence=(operator_confidence if operator_position is not None else 0.0),
-            timestamp=now,
+            timestamp=observation_time,
         )
 
         operator_valid = (
@@ -400,26 +411,34 @@ class RobotOperatorInteractionNode(Node):
                 )
 
         # ------------------------------------------------------------
-        # Robot kinematic reference
+        # Robot visual tracking
         # ------------------------------------------------------------
-        robot_reference_position = self._get_robot_reference_position()
-        robot_reference_velocity = self._estimate_robot_reference_velocity(
-            robot_reference_position,
-            now,
+        robot_position = None
+        if robot_visual_position is not None:
+            robot_position = self._filter_position(
+                robot_visual_position,
+                "robot",
+            )
+        else:
+            self._filter_position(None, "robot")
+
+        robot_velocity = self._estimate_robot_velocity(
+            robot_position,
+            observation_time,
         )
 
         # ------------------------------------------------------------
         # Interaction / collision
         # ------------------------------------------------------------
         collision_result = None
-        if operator_valid and robot_reference_position is not None:
+        if operator_valid and robot_position is not None:
             operator_velocity = operator_depth_result.velocity
             if operator_velocity is None:
                 operator_velocity = np.zeros(3, dtype=float)
 
             collision_result = self._collision_estimator.update(
-                robot_position=robot_reference_position,
-                robot_velocity=robot_reference_velocity,
+                robot_position=robot_position,
+                robot_velocity=robot_velocity,
                 operator_position=operator_depth_result.position,
                 operator_velocity=operator_velocity,
             )
@@ -429,11 +448,11 @@ class RobotOperatorInteractionNode(Node):
             cloud_ok,
             cloud_organized,
             sensor_dt,
+            self._max_rgb_pointcloud_dt,
             primary_person,
             operator_valid,
             robot_detection,
-            robot_visual_position,
-            robot_reference_position,
+            robot_position,
             collision_result,
         )
 
@@ -442,12 +461,10 @@ class RobotOperatorInteractionNode(Node):
             primary_person,
             operator_depth_result,
             robot_detection,
-            robot_visual_position,
-            robot_reference_position,
-            robot_reference_velocity,
+            robot_position,
+            robot_velocity,
             collision_result,
             status,
-            robot_valid_points,
         )
 
         if self._visualizar:
@@ -460,8 +477,7 @@ class RobotOperatorInteractionNode(Node):
                 primary_person,
                 robot_detection,
                 operator_depth_result.position if operator_valid else None,
-                robot_visual_position,
-                robot_reference_position,
+                robot_position,
                 collision_result,
                 status,
                 robot_valid_points,
@@ -607,7 +623,70 @@ class RobotOperatorInteractionNode(Node):
         return position, valid_points
 
     # ================================================================
-    # TF / VELOCITY
+    # TEMPORAL FILTERING / VELOCITY
+    # ================================================================
+    def _filter_position(
+        self,
+        position: Optional[np.ndarray],
+        target: str,
+    ) -> Optional[np.ndarray]:
+        """Apply an exponential moving average to a 3D position."""
+        if position is None:
+            if target == "operator":
+                self._filtered_operator_position = None
+            else:
+                self._filtered_robot_position = None
+            return None
+
+        position = np.asarray(position, dtype=float)
+
+        if target == "operator":
+            previous = self._filtered_operator_position
+        else:
+            previous = self._filtered_robot_position
+
+        if previous is None:
+            filtered = position.copy()
+        else:
+            alpha = self._position_filter_alpha
+            filtered = alpha * position + (1.0 - alpha) * previous
+
+        if target == "operator":
+            self._filtered_operator_position = filtered.copy()
+        else:
+            self._filtered_robot_position = filtered.copy()
+
+        return filtered
+
+    def _estimate_robot_velocity(
+        self,
+        position: Optional[np.ndarray],
+        timestamp: float,
+    ) -> np.ndarray:
+        """Estimate robot velocity from the filtered visual position."""
+        if position is None:
+            self._last_robot_position = None
+            self._last_robot_position_time = None
+            return np.zeros(3, dtype=float)
+
+        if self._last_robot_position is None or self._last_robot_position_time is None:
+            self._last_robot_position = position.copy()
+            self._last_robot_position_time = timestamp
+            return np.zeros(3, dtype=float)
+
+        dt = timestamp - self._last_robot_position_time
+        if dt <= 1e-4:
+            return np.zeros(3, dtype=float)
+
+        velocity = (position - self._last_robot_position) / dt
+
+        self._last_robot_position = position.copy()
+        self._last_robot_position_time = timestamp
+
+        return velocity
+
+    # ================================================================
+    # TF
     # ================================================================
     def _transform_position_to_base(
         self,
@@ -647,47 +726,6 @@ class RobotOperatorInteractionNode(Node):
             )
             return None
 
-    def _get_robot_reference_position(self) -> Optional[np.ndarray]:
-        try:
-            transform = self._tf_buffer.lookup_transform(
-                self._robot_base_frame,
-                self._robot_reference_frame,
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.05),
-            )
-            t = transform.transform.translation
-            return np.array([t.x, t.y, t.z], dtype=float)
-        except (
-            tf2_ros.LookupException,
-            tf2_ros.ConnectivityException,
-            tf2_ros.ExtrapolationException,
-        ):
-            return None
-
-    def _estimate_robot_reference_velocity(
-        self,
-        position: Optional[np.ndarray],
-        timestamp: float,
-    ) -> np.ndarray:
-        if position is None:
-            self._last_robot_ref_position = None
-            self._last_robot_ref_time = None
-            return np.zeros(3, dtype=float)
-
-        if self._last_robot_ref_position is None or self._last_robot_ref_time is None:
-            self._last_robot_ref_position = position.copy()
-            self._last_robot_ref_time = timestamp
-            return np.zeros(3, dtype=float)
-
-        dt = timestamp - self._last_robot_ref_time
-        if dt <= 1e-4:
-            return np.zeros(3, dtype=float)
-
-        velocity = (position - self._last_robot_ref_position) / dt
-        self._last_robot_ref_position = position.copy()
-        self._last_robot_ref_time = timestamp
-        return velocity
-
     # ================================================================
     # PUBLISH
     # ================================================================
@@ -697,12 +735,10 @@ class RobotOperatorInteractionNode(Node):
         primary_person,
         operator_depth_result,
         robot_detection,
-        robot_visual_position,
-        robot_reference_position,
-        robot_reference_velocity,
+        robot_position,
+        robot_velocity,
         collision_result,
         status,
-        robot_valid_points,
     ) -> None:
         msg = RobotOperatorInteraction()
         msg.header = image_msg.header
@@ -716,8 +752,7 @@ class RobotOperatorInteractionNode(Node):
         msg.operator_detected = primary_person is not None
         msg.robot_detected = robot_detection is not None
         msg.operator_position_valid = operator_valid
-        msg.robot_visual_position_valid = robot_visual_position is not None
-        msg.robot_reference_valid = robot_reference_position is not None
+        msg.robot_position_valid = robot_position is not None
 
         msg.operator_confidence = float(primary_person.confidence if primary_person else 0.0)
         msg.robot_confidence = float(robot_detection.confidence if robot_detection else 0.0)
@@ -725,8 +760,7 @@ class RobotOperatorInteractionNode(Node):
         msg.operator_position = self._point_msg(
             operator_depth_result.position if operator_valid else None
         )
-        msg.robot_visual_position = self._point_msg(robot_visual_position)
-        msg.robot_reference_position = self._point_msg(robot_reference_position)
+        msg.robot_position = self._point_msg(robot_position)
 
         operator_velocity = (
             operator_depth_result.velocity
@@ -734,7 +768,7 @@ class RobotOperatorInteractionNode(Node):
             else np.zeros(3, dtype=float)
         )
         msg.operator_velocity = self._vector_msg(operator_velocity)
-        msg.robot_velocity = self._vector_msg(robot_reference_velocity)
+        msg.robot_velocity = self._vector_msg(robot_velocity)
 
         if collision_result is None:
             msg.interaction_valid = False
@@ -771,8 +805,7 @@ class RobotOperatorInteractionNode(Node):
         msg.operator_detected = False
         msg.robot_detected = False
         msg.operator_position_valid = False
-        msg.robot_visual_position_valid = False
-        msg.robot_reference_valid = False
+        msg.robot_position_valid = False
         msg.operator_confidence = 0.0
         msg.robot_confidence = 0.0
         msg.distance = -1.0
@@ -813,11 +846,11 @@ class RobotOperatorInteractionNode(Node):
         cloud_ok,
         cloud_organized,
         sensor_dt,
+        max_rgb_pointcloud_dt,
         primary_person,
         operator_valid,
         robot_detection,
-        robot_visual_position,
-        robot_reference_position,
+        robot_position,
         collision_result,
     ) -> str:
         if not rgb_ok:
@@ -826,7 +859,7 @@ class RobotOperatorInteractionNode(Node):
             return "POINTCLOUD NOT READY"
         if not cloud_organized:
             return "POINTCLOUD NOT ORGANIZED"
-        if sensor_dt > 0.15:
+        if sensor_dt > max_rgb_pointcloud_dt:
             return "RGB / POINTCLOUD NOT SYNC"
         if primary_person is None:
             return "OPERATOR NOT DETECTED"
@@ -834,10 +867,8 @@ class RobotOperatorInteractionNode(Node):
             return "OPERATOR 3D INVALID"
         if robot_detection is None:
             return "ROBOT NOT DETECTED"
-        if robot_visual_position is None:
+        if robot_position is None:
             return "ROBOT 3D INVALID"
-        if robot_reference_position is None:
-            return "ROBOT TF INVALID"
         if collision_result is None:
             return "INTERACTION INVALID"
         return "INTERACTION VALID"
@@ -852,8 +883,7 @@ class RobotOperatorInteractionNode(Node):
         primary_person,
         robot_detection,
         operator_position,
-        robot_visual_position,
-        robot_reference_position,
+        robot_position,
         collision_result,
         status,
         robot_valid_points,
@@ -901,8 +931,7 @@ class RobotOperatorInteractionNode(Node):
             y = 30
             entries = [
                 ("Operator XYZ base:", operator_position, (0, 255, 0)),
-                ("Robot visual XYZ base:", robot_visual_position, (255, 0, 0)),
-                (f"Robot {self._robot_reference_frame} XYZ:", robot_reference_position, (255, 255, 0)),
+                ("Robot XYZ base:", robot_position, (255, 0, 0)),
             ]
             for label, position, text_color in entries:
                 if position is not None:
@@ -940,8 +969,7 @@ class RobotOperatorInteractionNode(Node):
             ("Operator", primary_person is not None),
             ("Robot YOLO", robot_detection is not None),
             ("Operator 3D", operator_position is not None),
-            ("Robot visual 3D", robot_visual_position is not None),
-            ("Robot TF", robot_reference_position is not None),
+            ("Robot 3D", robot_position is not None),
             ("Interaction", collision_result is not None),
         ]
         for label, ok in states:
