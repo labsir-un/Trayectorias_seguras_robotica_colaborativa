@@ -1,0 +1,40 @@
+<launch>
+
+    <arg
+        name="interaction_topic"
+        default="/robot_operator_interaction"
+        description="Topic de datos de interacción operador-robot"
+    />
+
+    <arg 
+        name="perception_operator_topic" 
+        default="/state_operator" 
+        description="Topic OperatorPerception de entrada"
+    />
+
+    <node
+        pkg="colab_supervision_control"
+        exec="control_supervisor"
+        name="control_supervisor"
+        output="screen">
+
+        <param
+            name="interaction_topic"
+            value="$(var interaction_topic)"
+        />
+
+    </node>
+
+    <node 
+        pkg="colab_supervision_control"
+        exec="operator_condition_node" 
+        name="operator_condition_node" output="screen">
+
+        <param 
+            name="perception_topic"
+            value="$(var perception_operator_topic)"
+        />
+
+    </node>
+
+</launch>
