@@ -14,7 +14,10 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(colab_supervision_interfaces REQUIRED)
 
-add_executable(control_supervisor src/control_supervisor.cpp)
+add_executable(
+  control_supervisor 
+  src/control_supervisor.cpp
+)
 
 target_include_directories(control_supervisor PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -27,13 +30,35 @@ ament_target_dependencies(control_supervisor
   colab_supervision_interfaces
 )
 
-install(TARGETS control_supervisor
+
+add_executable(
+  operator_condition_node
+  src/operator_condition.cpp
+)
+
+ament_target_dependencies(
+  operator_condition_node
+  rclcpp
+  std_msgs
+  colab_supervision_interfaces
+)
+
+target_include_directories(
+  operator_condition_node
+  PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+install(TARGETS 
+  control_supervisor
+  operator_condition_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
   DESTINATION include)
 
-install(DIRECTORY launch config
+install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME})
 
 ament_package()
