@@ -18,6 +18,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MultiArrayLayout.msg"
   "msg/Name.msg"
   "msg/OperatorPerception.msg"
+  "msg/OperatorPosture.msg"
+  "msg/OperatorStateAnalysis.msg"
   "msg/Pose.msg"
   "msg/PoseCommand.msg"
   "msg/RobotDetection.msg"

@@ -1,20 +1,16 @@
 #ifndef COLAB_SUPERVISION_CONTROL__OPERATOR_CONDITION_HPP_
 #define COLAB_SUPERVISION_CONTROL__OPERATOR_CONDITION_HPP_
 
-#include <array>
 #include <deque>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/float32.hpp>
-#include <std_msgs/msg/string.hpp>
-
 #include <colab_supervision_interfaces/msg/operator_perception.hpp>
+#include <colab_supervision_interfaces/msg/operator_posture.hpp>
+#include <colab_supervision_interfaces/msg/operator_state_analysis.hpp>
 
 namespace colab_supervision_control
 {
@@ -110,21 +106,11 @@ private:
   // ==========================================================================
 
   std::string perception_topic_;
-
-  std::string presence_topic_;
-  std::string attention_topic_;
-  std::string attention_score_topic_;
-
-  std::string fatigue_topic_;
-  std::string fatigue_score_topic_;
-
+  std::string state_analysis_topic_;
   std::string posture_topic_;
-  std::string posture_score_topic_;
 
   int history_size_;
 
-  // Umbrales para determinar si la orientación de cabeza se considera
-  // una postura válida.
   float posture_max_yaw_rad_;
   float posture_max_pitch_rad_;
   float posture_max_roll_rad_;
@@ -138,22 +124,13 @@ private:
     colab_supervision_interfaces::msg::OperatorPerception>::SharedPtr
     perception_sub_;
 
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr presence_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::OperatorStateAnalysis>::SharedPtr
+    state_analysis_pub_;
 
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr attention_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr
-    attention_score_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fatigue_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr
-    fatigue_score_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr posture_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr
-    posture_score_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::OperatorPosture>::SharedPtr
+    posture_pub_;
 
   // ==========================================================================
   // ESTADO
