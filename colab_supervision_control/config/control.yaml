@@ -1,0 +1,22 @@
+control_supervisor:
+  ros__parameters:
+    interaction_topic: "/robot_operator_interaction"
+    action_topic: "/control/action"
+    speed_topic: "/control/speed_percent"
+    actions_allowed_topic: "/control/actions_allowed"
+    status_topic: "/control/status"
+
+    full_speed_distance: 1.900
+    half_speed_distance: 1.600
+    minimum_speed_distance: 0.400
+
+    full_speed_percent: 100.0
+    half_speed_percent: 50.0
+    minimum_speed_percent: 5.0
+
+    robot_not_detected_min_distance: 1.650
+    stop_distance: 1.600
+
+    warning_history_size: 5
+    danger_pause_frames: 5
+    distance_memory_timeout: 1.0
