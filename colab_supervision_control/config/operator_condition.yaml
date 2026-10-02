@@ -1,43 +1,16 @@
 operator_condition_node:
   ros__parameters:
 
-    # ==========================================================================
-    # INPUT
-    # ==========================================================================
-
     perception_topic: "/state_operator"
 
-    # ==========================================================================
-    # OUTPUT
-    # ==========================================================================
-
-    presence_topic: "/operator/presence"
-
-    attention_topic: "/operator/attention"
-    attention_score_topic: "/operator/attention_score"
-
-    fatigue_topic: "/operator/fatigue"
-    fatigue_score_topic: "/operator/fatigue_score"
-
+    state_analysis_topic: "/operator/state_analisis"
     posture_topic: "/operator/posture"
-    posture_score_topic: "/operator/posture_score"
 
-    # ==========================================================================
-    # TEMPORAL WINDOW
-    # ==========================================================================
-
-    # Number of OperatorPerception frames used to calculate the conditions.
     history_size: 5
 
-    # ==========================================================================
-    # POSTURE
-    #
-    # head_yaw / pitch / roll arrive in radians.
-    # ==========================================================================
-
+    # 25 degrees in radians
     posture_max_yaw_rad: 0.436332
     posture_max_pitch_rad: 0.436332
     posture_max_roll_rad: 0.436332
 
-    # Maximum normalized head-nodding indicator accepted as normal posture.
     posture_max_nodding_score: 0.60

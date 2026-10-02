@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <cstdint>
-#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -20,7 +18,7 @@ OperatorCondition::OperatorCondition()
 : Node("operator_condition_node")
 {
   // ==========================================================================
-  // TOPICS DE ENTRADA
+  // INPUT
   // ==========================================================================
 
   perception_topic_ = declare_parameter<std::string>(
@@ -29,32 +27,12 @@ OperatorCondition::OperatorCondition()
   );
 
   // ==========================================================================
-  // TOPICS DE SALIDA
+  // OUTPUT
   // ==========================================================================
 
-  presence_topic_ = declare_parameter<std::string>(
-    "presence_topic",
-    "/operator/presence"
-  );
-
-  attention_topic_ = declare_parameter<std::string>(
-    "attention_topic",
-    "/operator/attention"
-  );
-
-  attention_score_topic_ = declare_parameter<std::string>(
-    "attention_score_topic",
-    "/operator/attention_score"
-  );
-
-  fatigue_topic_ = declare_parameter<std::string>(
-    "fatigue_topic",
-    "/operator/fatigue"
-  );
-
-  fatigue_score_topic_ = declare_parameter<std::string>(
-    "fatigue_score_topic",
-    "/operator/fatigue_score"
+  state_analysis_topic_ = declare_parameter<std::string>(
+    "state_analysis_topic",
+    "/operator/state_analisis"
   );
 
   posture_topic_ = declare_parameter<std::string>(
@@ -62,13 +40,8 @@ OperatorCondition::OperatorCondition()
     "/operator/posture"
   );
 
-  posture_score_topic_ = declare_parameter<std::string>(
-    "posture_score_topic",
-    "/operator/posture_score"
-  );
-
   // ==========================================================================
-  // VENTANA TEMPORAL
+  // TEMPORAL WINDOW
   // ==========================================================================
 
   history_size_ = declare_parameter<int>(
@@ -77,15 +50,14 @@ OperatorCondition::OperatorCondition()
   );
 
   // ==========================================================================
-  // UMBRALES DE POSTURA
+  // POSTURE THRESHOLDS
   //
-  // Los valores por defecto representan una condición configurable de
-  // orientación de cabeza. Los ángulos del mensaje están expresados en
-  // radianes.
+  // head_yaw / pitch / roll are expressed in radians.
+  // Default = 25 degrees.
   // ==========================================================================
 
   constexpr float kDefaultPostureAngleRad =
-    0.436332312F;  // 25 degrees
+    0.436332312F;
 
   posture_max_yaw_rad_ = declare_parameter<float>(
     "posture_max_yaw_rad",
@@ -108,11 +80,27 @@ OperatorCondition::OperatorCondition()
   );
 
   if (history_size_ < 1) {
-    history_size_ = 5;
     RCLCPP_WARN(
       get_logger(),
       "history_size invalido. Se utiliza 5."
     );
+    history_size_ = 5;
+  }
+
+  if (posture_max_yaw_rad_ <= 0.0F) {
+    posture_max_yaw_rad_ = kDefaultPostureAngleRad;
+  }
+
+  if (posture_max_pitch_rad_ <= 0.0F) {
+    posture_max_pitch_rad_ = kDefaultPostureAngleRad;
+  }
+
+  if (posture_max_roll_rad_ <= 0.0F) {
+    posture_max_roll_rad_ = kDefaultPostureAngleRad;
+  }
+
+  if (posture_max_nodding_score_ <= 0.0F) {
+    posture_max_nodding_score_ = 0.60F;
   }
 
   // ==========================================================================
@@ -136,45 +124,19 @@ OperatorCondition::OperatorCondition()
   // PUBLISHERS
   // ==========================================================================
 
-  presence_pub_ =
-    create_publisher<std_msgs::msg::Bool>(
-      presence_topic_,
-      10
-    );
-
-  attention_pub_ =
-    create_publisher<std_msgs::msg::String>(
-      attention_topic_,
-      10
-    );
-
-  attention_score_pub_ =
-    create_publisher<std_msgs::msg::Float32>(
-      attention_score_topic_,
-      10
-    );
-
-  fatigue_pub_ =
-    create_publisher<std_msgs::msg::String>(
-      fatigue_topic_,
-      10
-    );
-
-  fatigue_score_pub_ =
-    create_publisher<std_msgs::msg::Float32>(
-      fatigue_score_topic_,
+  state_analysis_pub_ =
+    create_publisher<
+      colab_supervision_interfaces::msg::OperatorStateAnalysis
+    >(
+      state_analysis_topic_,
       10
     );
 
   posture_pub_ =
-    create_publisher<std_msgs::msg::String>(
+    create_publisher<
+      colab_supervision_interfaces::msg::OperatorPosture
+    >(
       posture_topic_,
-      10
-    );
-
-  posture_score_pub_ =
-    create_publisher<std_msgs::msg::Float32>(
-      posture_score_topic_,
       10
     );
 
@@ -206,49 +168,14 @@ OperatorCondition::OperatorCondition()
 
   RCLCPP_INFO(
     get_logger(),
-    "Outputs:"
+    "State analysis: %s",
+    state_analysis_topic_.c_str()
   );
 
   RCLCPP_INFO(
     get_logger(),
-    "  Presence       : %s",
-    presence_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Attention      : %s",
-    attention_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Attention score: %s",
-    attention_score_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Fatigue        : %s",
-    fatigue_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Fatigue score  : %s",
-    fatigue_score_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Posture        : %s",
+    "Posture: %s",
     posture_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "  Posture score  : %s",
-    posture_score_topic_.c_str()
   );
 
   RCLCPP_INFO(
@@ -270,7 +197,7 @@ void OperatorCondition::operator_perception_callback(
 
 
 // ============================================================================
-// PROCESAMIENTO
+// PROCESSING
 // ============================================================================
 
 void OperatorCondition::process_operator_state(
@@ -285,11 +212,7 @@ void OperatorCondition::process_operator_state(
     msg.person_visible;
 
   sample.attention_score =
-    std::clamp(
-      msg.attention_score,
-      0.0F,
-      1.0F
-    );
+    std::clamp(msg.attention_score, 0.0F, 1.0F);
 
   sample.attention_target =
     msg.attention_target.empty()
@@ -297,11 +220,7 @@ void OperatorCondition::process_operator_state(
       : msg.attention_target;
 
   sample.fatigue_score =
-    std::clamp(
-      msg.fatigue_score,
-      0.0F,
-      1.0F
-    );
+    std::clamp(msg.fatigue_score, 0.0F, 1.0F);
 
   sample.fatigue_level =
     msg.fatigue_level.empty()
@@ -318,17 +237,9 @@ void OperatorCondition::process_operator_state(
     msg.head_roll;
 
   sample.head_nodding_score =
-    std::clamp(
-      msg.head_nodding_score,
-      0.0F,
-      1.0F
-    );
+    std::clamp(msg.head_nodding_score, 0.0F, 1.0F);
 
   push_sample(sample);
-
-  // ==========================================================================
-  // EVALUACION DE LAS CONDICIONES
-  // ==========================================================================
 
   const bool presence =
     evaluate_presence();
@@ -342,10 +253,6 @@ void OperatorCondition::process_operator_state(
   const AggregatedCondition posture =
     evaluate_posture();
 
-  // ==========================================================================
-  // PUBLICACION
-  // ==========================================================================
-
   publish_conditions(
     presence,
     attention,
@@ -353,13 +260,12 @@ void OperatorCondition::process_operator_state(
     posture
   );
 
-  initialized_ =
-    true;
+  initialized_ = true;
 }
 
 
 // ============================================================================
-// HISTORIAL
+// HISTORY
 // ============================================================================
 
 void OperatorCondition::push_sample(
@@ -377,12 +283,10 @@ void OperatorCondition::push_sample(
 
 
 // ============================================================================
-// PRESENCIA
+// PRESENCE
 //
-// La condición se considera estable cuando todos los frames de la ventana
-// contienen una detección y una observación facial visible.
-//
-// Mientras la ventana no esté completa, se publica false.
+// The output is true only after the complete 5-frame window is available
+// and all frames indicate both detection and visibility.
 // ============================================================================
 
 bool OperatorCondition::evaluate_presence() const
@@ -409,18 +313,13 @@ bool OperatorCondition::evaluate_presence() const
 
 
 // ============================================================================
-// ATENCION
+// ATTENTION
 //
-// Se obtiene el objetivo predominante de los últimos frames.
+// The predominant target is calculated over the complete temporal window.
+// Canonical output:
+//   TASK / HMI / OTHER / UNKNOWN
 //
-// Valores esperados:
-//   task
-//   HMI
-//   other
-//   unknown
-//
-// Si hay empate, se conserva UNKNOWN para no sobredeterminar la condición.
-// La puntuación es el promedio de los scores válidos disponibles.
+// The score is the arithmetic mean of attention_score.
 // ============================================================================
 
 OperatorCondition::AggregatedCondition
@@ -428,7 +327,10 @@ OperatorCondition::evaluate_attention() const
 {
   AggregatedCondition result;
 
-  if (history_.empty()) {
+  if (
+    history_.size() <
+    static_cast<std::size_t>(history_size_)
+  ) {
     return result;
   }
 
@@ -457,27 +359,24 @@ OperatorCondition::evaluate_attention() const
       target.end(),
       target.begin(),
       [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
+        return static_cast<char>(
+          std::tolower(c)
+        );
       }
     );
 
-    if (
-      target == "task" ||
-      target == "hmi" ||
-      target == "other" ||
-      target == "unknown"
-    ) {
-      targets.push_back(target);
+    if (target == "task") {
+      targets.push_back("TASK");
+    } else if (target == "hmi") {
+      targets.push_back("HMI");
+    } else if (target == "other") {
+      targets.push_back("OTHER");
     } else {
-      targets.push_back("unknown");
+      targets.push_back("UNKNOWN");
     }
 
-    if (
-      std::isfinite(sample.attention_score)
-    ) {
-      score_sum +=
-        sample.attention_score;
-
+    if (std::isfinite(sample.attention_score)) {
+      score_sum += sample.attention_score;
       ++score_count;
     }
   }
@@ -489,7 +388,7 @@ OperatorCondition::evaluate_attention() const
   result.condition =
     majority_string(
       targets,
-      "unknown"
+      "UNKNOWN"
     );
 
   if (score_count > 0) {
@@ -502,8 +401,7 @@ OperatorCondition::evaluate_attention() const
         1.0F
       );
 
-    result.valid =
-      true;
+    result.valid = true;
   }
 
   return result;
@@ -511,15 +409,14 @@ OperatorCondition::evaluate_attention() const
 
 
 // ============================================================================
-// FATIGA
+// FATIGUE
 //
-// Se utiliza una votación de los últimos frames.
+// The predominant fatigue level is calculated over the complete temporal
+// window.
+// Canonical output:
+//   LOW / MEDIUM / HIGH / UNKNOWN
 //
-// Ejemplo:
-//   LOW LOW MEDIUM LOW MEDIUM -> LOW
-//
-// Si no existe una mayoría clara, se publica UNKNOWN.
-// La puntuación es el promedio del fatigue_score.
+// The score is the arithmetic mean of fatigue_score.
 // ============================================================================
 
 OperatorCondition::AggregatedCondition
@@ -527,7 +424,10 @@ OperatorCondition::evaluate_fatigue() const
 {
   AggregatedCondition result;
 
-  if (history_.empty()) {
+  if (
+    history_.size() <
+    static_cast<std::size_t>(history_size_)
+  ) {
     return result;
   }
 
@@ -556,7 +456,9 @@ OperatorCondition::evaluate_fatigue() const
       level.end(),
       level.begin(),
       [](unsigned char c) {
-        return static_cast<char>(std::toupper(c));
+        return static_cast<char>(
+          std::toupper(c)
+        );
       }
     );
 
@@ -571,12 +473,8 @@ OperatorCondition::evaluate_fatigue() const
       levels.push_back("UNKNOWN");
     }
 
-    if (
-      std::isfinite(sample.fatigue_score)
-    ) {
-      score_sum +=
-        sample.fatigue_score;
-
+    if (std::isfinite(sample.fatigue_score)) {
+      score_sum += sample.fatigue_score;
       ++score_count;
     }
   }
@@ -601,8 +499,7 @@ OperatorCondition::evaluate_fatigue() const
         1.0F
       );
 
-    result.valid =
-      true;
+    result.valid = true;
   }
 
   return result;
@@ -610,19 +507,16 @@ OperatorCondition::evaluate_fatigue() const
 
 
 // ============================================================================
-// POSTURA
+// POSTURE
 //
-// La postura se evalúa a partir de la orientación de cabeza y el indicador
-// de cabeceo:
-//
+// Each frame is classified as:
 //   POSTURE_OK
 //   HEAD_DEVIATED
 //   NODDING
 //   UNKNOWN
 //
-// El score representa una medida de calidad de postura [0,1]:
-//   1.0 -> dentro de los límites configurados
-//   0.0 -> desviación máxima según los límites configurados
+// The final condition is the predominant condition over the complete window.
+// The posture score is the arithmetic mean over valid frames.
 // ============================================================================
 
 OperatorCondition::AggregatedCondition
@@ -630,7 +524,10 @@ OperatorCondition::evaluate_posture() const
 {
   AggregatedCondition result;
 
-  if (history_.empty()) {
+  if (
+    history_.size() <
+    static_cast<std::size_t>(history_size_)
+  ) {
     return result;
   }
 
@@ -679,8 +576,7 @@ OperatorCondition::evaluate_posture() const
         1.0F
       );
 
-    result.valid =
-      true;
+    result.valid = true;
   }
 
   return result;
@@ -688,7 +584,9 @@ OperatorCondition::evaluate_posture() const
 
 
 // ============================================================================
-// MAYORIA
+// MAJORITY
+//
+// In case of a tie, UNKNOWN is returned.
 // ============================================================================
 
 std::string OperatorCondition::majority_string(
@@ -734,7 +632,7 @@ std::string OperatorCondition::majority_string(
 
 
 // ============================================================================
-// VALIDACION DE POSTURA
+// POSTURE VALIDATION
 // ============================================================================
 
 bool OperatorCondition::posture_sample_valid(
@@ -752,7 +650,7 @@ bool OperatorCondition::posture_sample_valid(
 
 
 // ============================================================================
-// SCORE DE POSTURA
+// POSTURE SCORE
 // ============================================================================
 
 float OperatorCondition::posture_sample_score(
@@ -786,7 +684,6 @@ float OperatorCondition::posture_sample_score(
       posture_max_nodding_score_
     );
 
-  // Se utiliza la peor desviación como indicador de calidad de postura.
   const float maximum_deviation =
     std::max(
       std::max(
@@ -808,7 +705,7 @@ float OperatorCondition::posture_sample_score(
 
 
 // ============================================================================
-// CONDICION DE POSTURA POR FRAME
+// POSTURE CONDITION
 // ============================================================================
 
 std::string OperatorCondition::posture_sample_condition(
@@ -837,7 +734,7 @@ std::string OperatorCondition::posture_sample_condition(
 
 
 // ============================================================================
-// PUBLICACION
+// PUBLISH
 // ============================================================================
 
 void OperatorCondition::publish_conditions(
@@ -847,82 +744,44 @@ void OperatorCondition::publish_conditions(
   const AggregatedCondition & posture)
 {
   // ==========================================================================
-  // PRESENCIA
+  // UNIFIED OPERATOR STATE ANALYSIS
   // ==========================================================================
 
-  std_msgs::msg::Bool presence_msg;
+  colab_supervision_interfaces::msg::OperatorStateAnalysis state_msg;
 
-  presence_msg.data =
+  state_msg.operator_present =
     presence;
 
-  presence_pub_->publish(
-    presence_msg
-  );
-
-  // ==========================================================================
-  // ATENCION
-  // ==========================================================================
-
-  std_msgs::msg::String attention_msg;
-
-  attention_msg.data =
+  state_msg.attention_condition =
     attention.condition;
 
-  attention_pub_->publish(
-    attention_msg
-  );
-
-  std_msgs::msg::Float32 attention_score_msg;
-
-  attention_score_msg.data =
+  state_msg.attention_score =
     attention.score;
 
-  attention_score_pub_->publish(
-    attention_score_msg
-  );
-
-  // ==========================================================================
-  // FATIGA
-  // ==========================================================================
-
-  std_msgs::msg::String fatigue_msg;
-
-  fatigue_msg.data =
+  state_msg.fatigue_condition =
     fatigue.condition;
 
-  fatigue_pub_->publish(
-    fatigue_msg
-  );
-
-  std_msgs::msg::Float32 fatigue_score_msg;
-
-  fatigue_score_msg.data =
+  state_msg.fatigue_score =
     fatigue.score;
 
-  fatigue_score_pub_->publish(
-    fatigue_score_msg
+  state_analysis_pub_->publish(
+    state_msg
   );
 
   // ==========================================================================
-  // POSTURA
+  // POSTURE
   // ==========================================================================
 
-  std_msgs::msg::String posture_msg;
+  colab_supervision_interfaces::msg::OperatorPosture posture_msg;
 
-  posture_msg.data =
+  posture_msg.posture_condition =
     posture.condition;
+
+  posture_msg.posture_score =
+    posture.score;
 
   posture_pub_->publish(
     posture_msg
-  );
-
-  std_msgs::msg::Float32 posture_score_msg;
-
-  posture_score_msg.data =
-    posture.score;
-
-  posture_score_pub_->publish(
-    posture_score_msg
   );
 
   // ==========================================================================
@@ -932,7 +791,7 @@ void OperatorCondition::publish_conditions(
   if (
     !initialized_ ||
     !presence ||
-    attention.condition == "unknown" ||
+    attention.condition == "UNKNOWN" ||
     fatigue.condition == "UNKNOWN" ||
     posture.condition == "UNKNOWN"
   ) {
@@ -997,7 +856,6 @@ int main(
       rclcpp::get_logger(
         "operator_condition_node"
       ),
-
       "Node initialization failed: %s",
       error.what()
     );
