@@ -3,13 +3,15 @@
 <package format="3">
   <name>colab_supervision_control</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Control package for the colab supervision system</description>
   <maintainer email="jdaleman@unal.edu.co">jsdaleman</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>colab_supervision_interfaces</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
