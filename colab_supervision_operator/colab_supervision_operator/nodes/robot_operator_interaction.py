@@ -109,6 +109,14 @@ class RobotOperatorInteractionNode(Node):
         self.declare_parameter("critical_time_to_collision", 1.00)
 
         # ============================================================
+        # 2D BOUNDING BOX OVERLAP
+        # ============================================================
+        # Dangerous condition when the operator and robot bounding
+        # boxes have an IoU between the configured limits.
+        self.declare_parameter("bbox_overlap_dangerous_min", 0.20)
+        self.declare_parameter("bbox_overlap_dangerous_max", 0.30)
+
+        # ============================================================
         # VISUALIZATION
         # ============================================================
         self.declare_parameter("visualizar", True)
@@ -131,6 +139,13 @@ class RobotOperatorInteractionNode(Node):
         self._max_rgb_pointcloud_dt = float(self.get_parameter("max_rgb_pointcloud_dt").value)
         self._position_filter_alpha = float(self.get_parameter("position_filter_alpha").value)
 
+        self._bbox_overlap_dangerous_min = float(
+            self.get_parameter("bbox_overlap_dangerous_min").value
+        )
+        self._bbox_overlap_dangerous_max = float(
+            self.get_parameter("bbox_overlap_dangerous_max").value
+        )
+
         self._visualizar = bool(self.get_parameter("visualizar").value)
         self._visualizar_detecciones = bool(self.get_parameter("visualizar_detecciones").value)
         self._visualizar_posiciones_3d = bool(self.get_parameter("visualizar_posiciones_3d").value)
@@ -142,6 +157,15 @@ class RobotOperatorInteractionNode(Node):
             raise ValueError("processing_rate must be greater than zero")
         if not 0.0 < self._position_filter_alpha <= 1.0:
             raise ValueError("position_filter_alpha must be in the interval (0, 1]")
+        if not 0.0 <= self._bbox_overlap_dangerous_min <= 1.0:
+            raise ValueError("bbox_overlap_dangerous_min must be in the interval [0, 1]")
+        if not 0.0 <= self._bbox_overlap_dangerous_max <= 1.0:
+            raise ValueError("bbox_overlap_dangerous_max must be in the interval [0, 1]")
+        if self._bbox_overlap_dangerous_min > self._bbox_overlap_dangerous_max:
+            raise ValueError(
+                "bbox_overlap_dangerous_min must be less than or equal to "
+                "bbox_overlap_dangerous_max"
+            )
 
         # ============================================================
         # PERCEPTION MODULES
@@ -233,6 +257,11 @@ class RobotOperatorInteractionNode(Node):
         self.get_logger().info(f"Robot model: {robot_model}")
         self.get_logger().info(f"Output: {self._interaction_topic}")
         self.get_logger().info(f"Visualization: {self._visualizar}")
+        self.get_logger().info(
+            "Dangerous bbox overlap (IoU): "
+            f"{self._bbox_overlap_dangerous_min:.2f} - "
+            f"{self._bbox_overlap_dangerous_max:.2f}"
+        )
         self.get_logger().info("====================================================")
 
     # ================================================================
@@ -393,6 +422,28 @@ class RobotOperatorInteractionNode(Node):
             self._debug_log(f"Robot YOLO: {exc}")
 
         # ------------------------------------------------------------
+        # 2D bounding-box overlap
+        # ------------------------------------------------------------
+        bbox_overlap = None
+        bbox_overlap_dangerous = False
+
+        if primary_person is not None and robot_detection is not None:
+            bbox_overlap = self._calculate_bbox_iou(
+                (
+                    primary_person.x1,
+                    primary_person.y1,
+                    primary_person.x2,
+                    primary_person.y2,
+                ),
+                robot_detection.bbox,
+            )
+            bbox_overlap_dangerous = (
+                self._bbox_overlap_dangerous_min
+                <= bbox_overlap
+                <= self._bbox_overlap_dangerous_max
+            )
+
+        # ------------------------------------------------------------
         # Robot visual 3D
         # ------------------------------------------------------------
         robot_visual_position = None
@@ -454,6 +505,7 @@ class RobotOperatorInteractionNode(Node):
             robot_detection,
             robot_position,
             collision_result,
+            bbox_overlap_dangerous,
         )
 
         self._publish_interaction(
@@ -465,6 +517,8 @@ class RobotOperatorInteractionNode(Node):
             robot_velocity,
             collision_result,
             status,
+            bbox_overlap,
+            bbox_overlap_dangerous,
         )
 
         if self._visualizar:
@@ -481,6 +535,8 @@ class RobotOperatorInteractionNode(Node):
                 collision_result,
                 status,
                 robot_valid_points,
+                bbox_overlap,
+                bbox_overlap_dangerous,
             )
             self._show(frame)
 
@@ -623,6 +679,33 @@ class RobotOperatorInteractionNode(Node):
         return position, valid_points
 
     # ================================================================
+    # BOUNDING BOX OVERLAP
+    # ================================================================
+    @staticmethod
+    def _calculate_bbox_iou(bbox_a, bbox_b) -> float:
+        """Calculate Intersection over Union (IoU) between two 2D boxes."""
+        ax1, ay1, ax2, ay2 = [float(value) for value in bbox_a]
+        bx1, by1, bx2, by2 = [float(value) for value in bbox_b]
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+
+        inter_width = max(0.0, inter_x2 - inter_x1)
+        inter_height = max(0.0, inter_y2 - inter_y1)
+        intersection = inter_width * inter_height
+
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - intersection
+
+        if union <= 0.0:
+            return 0.0
+
+        return float(intersection / union)
+
+    # ================================================================
     # TEMPORAL FILTERING / VELOCITY
     # ================================================================
     def _filter_position(
@@ -739,6 +822,8 @@ class RobotOperatorInteractionNode(Node):
         robot_velocity,
         collision_result,
         status,
+        bbox_overlap,
+        bbox_overlap_dangerous,
     ) -> None:
         msg = RobotOperatorInteraction()
         msg.header = image_msg.header
@@ -778,7 +863,7 @@ class RobotOperatorInteractionNode(Node):
             msg.time_to_collision = -1.0
             msg.time_to_collision_valid = False
             msg.collision_risk_score = 0.0
-            msg.collision_risk = "UNKNOWN"
+            msg.collision_risk = "DANGEROUS" if bbox_overlap_dangerous else "UNKNOWN"
             msg.collision_imminent = False
         else:
             msg.interaction_valid = True
@@ -788,6 +873,9 @@ class RobotOperatorInteractionNode(Node):
             msg.collision_risk_score = float(collision_result.collision_risk_score)
             msg.collision_risk = str(collision_result.collision_risk)
             msg.collision_imminent = bool(collision_result.collision_imminent)
+
+            if bbox_overlap_dangerous:
+                msg.collision_risk = "DANGEROUS"
 
             if collision_result.time_to_collision is None:
                 msg.time_to_collision = -1.0
@@ -852,6 +940,7 @@ class RobotOperatorInteractionNode(Node):
         robot_detection,
         robot_position,
         collision_result,
+        bbox_overlap_dangerous,
     ) -> str:
         if not rgb_ok:
             return "RGB NOT READY"
@@ -863,10 +952,12 @@ class RobotOperatorInteractionNode(Node):
             return "RGB / POINTCLOUD NOT SYNC"
         if primary_person is None:
             return "OPERATOR NOT DETECTED"
-        if not operator_valid:
-            return "OPERATOR 3D INVALID"
         if robot_detection is None:
             return "ROBOT NOT DETECTED"
+        if bbox_overlap_dangerous:
+            return "DANGEROUS BBOX OVERLAP"
+        if not operator_valid:
+            return "OPERATOR 3D INVALID"
         if robot_position is None:
             return "ROBOT 3D INVALID"
         if collision_result is None:
@@ -887,15 +978,19 @@ class RobotOperatorInteractionNode(Node):
         collision_result,
         status,
         robot_valid_points,
+        bbox_overlap,
+        bbox_overlap_dangerous,
     ) -> None:
         if self._visualizar_detecciones:
             if primary_person is not None:
+                operator_box_color = (0, 0, 255) if bbox_overlap_dangerous else (0, 255, 0)
+                operator_box_thickness = 3 if bbox_overlap_dangerous else 2
                 cv2.rectangle(
                     frame,
                     (int(primary_person.x1), int(primary_person.y1)),
                     (int(primary_person.x2), int(primary_person.y2)),
-                    (0, 255, 0),
-                    2,
+                    operator_box_color,
+                    operator_box_thickness,
                 )
                 cv2.putText(
                     frame,
@@ -909,7 +1004,9 @@ class RobotOperatorInteractionNode(Node):
 
             if robot_detection is not None:
                 x1, y1, x2, y2 = [int(v) for v in robot_detection.bbox]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                robot_box_color = (0, 0, 255) if bbox_overlap_dangerous else (255, 0, 0)
+                robot_box_thickness = 3 if bbox_overlap_dangerous else 2
+                cv2.rectangle(frame, (x1, y1), (x2, y2), robot_box_color, robot_box_thickness)
                 cv2.putText(
                     frame,
                     f"ABB IRB 140 {robot_detection.confidence:.2f}",
@@ -984,6 +1081,14 @@ class RobotOperatorInteractionNode(Node):
         cv2.putText(frame, f"Robot valid 3D points: {robot_valid_points}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220,220,220), 1)
         y += 23
 
+        if bbox_overlap is None:
+            overlap_text = "BBox IoU: --"
+        else:
+            overlap_text = f"BBox IoU: {bbox_overlap * 100.0:.1f}%"
+        overlap_color = (0, 0, 255) if bbox_overlap_dangerous else (220, 220, 220)
+        cv2.putText(frame, overlap_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, overlap_color, 2 if bbox_overlap_dangerous else 1)
+        y += 23
+
         if collision_result is not None:
             lines = [
                 f"Distance: {collision_result.distance:.3f} m",
@@ -1002,7 +1107,7 @@ class RobotOperatorInteractionNode(Node):
                 color = (220,220,220)
                 if line.startswith("Risk:"):
                     color = (
-                        (0,0,255) if collision_result.collision_risk == "CRITICAL"
+                        (0,0,255) if collision_result.collision_risk in ("CRITICAL", "DANGEROUS")
                         else (0,255,255) if collision_result.collision_risk == "WARNING"
                         else (0,255,0)
                     )
