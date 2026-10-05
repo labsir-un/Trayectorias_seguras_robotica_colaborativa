@@ -2,11 +2,13 @@
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <colab_supervision_interfaces/msg/joints.hpp>
 #include <colab_supervision_interfaces/msg/pose_command.hpp>
+#include <colab_supervision_interfaces/msg/pose_cua_command.hpp>
 #include <colab_supervision_interfaces/msg/name.hpp>
 
 using MoveGroupInterface = moveit::planning_interface::MoveGroupInterface;
 using FloatArray = colab_supervision_interfaces::msg::Joints;
 using PoseCmd = colab_supervision_interfaces::msg::PoseCommand;
+using PoseCuaCmd = colab_supervision_interfaces::msg::PoseCuaCommand;
 using NameCmd = colab_supervision_interfaces::msg::Name;
 using namespace std::placeholders;
 
@@ -30,6 +32,9 @@ class Commander
 
             pose_cmd_sub_ = node_->create_subscription<PoseCmd>(
                 "pose_command", 10, std::bind(&Commander::poseCmdCallback, this, _1));
+
+            posecua_cmd_sub_ = node_->create_subscription<PoseCuaCmd>(
+                "posecua_command", 10, std::bind(&Commander::poseCuaCmdCallback, this, _1));
         }
 
         void goToNamedTarget(const std::string &name)
@@ -82,6 +87,39 @@ class Commander
             }
         }
 
+        void goToPoseTargeCua(double x, double y, double z,
+                           double q1, double q2, double q3, double q4, bool cartesian_path=false)
+        {
+
+            geometry_msgs::msg::PoseStamped target_pose;
+            target_pose.header.frame_id = "base_link";
+            target_pose.header.stamp = node_->now();
+            target_pose.pose.position.x = x;
+            target_pose.pose.position.y = y;
+            target_pose.pose.position.z = z;
+            target_pose.pose.orientation.x = q1;
+            target_pose.pose.orientation.y = q2;
+            target_pose.pose.orientation.z = q3;
+            target_pose.pose.orientation.w = q4;
+
+            irb140_->setStartStateToCurrentState();
+            if (!cartesian_path){
+                irb140_->setPoseTarget(target_pose);
+                planAndExecute(irb140_);
+            }
+            else{
+                std::vector<geometry_msgs::msg::Pose> waypoints;
+                waypoints.push_back(target_pose.pose);
+                moveit_msgs::msg:: RobotTrajectory trajectory;
+
+                double fraction = irb140_->computeCartesianPath(waypoints, 0.01, trajectory);
+
+                if (fraction == 1){
+                    irb140_->execute(trajectory);
+                }
+            }
+        }
+
     private:
         
         void planAndExecute(const std::shared_ptr<MoveGroupInterface> &interface)
@@ -115,12 +153,20 @@ class Commander
                         msg.cartesian_path);
         }
 
+        void poseCuaCmdCallback(const PoseCuaCmd &msg)
+        {
+            goToPoseTargeCua(msg.pose.x, msg.pose.y, msg.pose.z,
+                        msg.pose.q1, msg.pose.q2, msg.pose.q3, msg.pose.q4,
+                        msg.cartesian_path);
+        }
+
         std::shared_ptr<rclcpp::Node> node_;
         std::shared_ptr<MoveGroupInterface> irb140_;
         
         rclcpp::Subscription<NameCmd>::SharedPtr named_target_sub_;
         rclcpp::Subscription<FloatArray>::SharedPtr joint_cmd_sub_;
         rclcpp::Subscription<PoseCmd>::SharedPtr pose_cmd_sub_;
+        rclcpp::Subscription<PoseCuaCmd>::SharedPtr posecua_cmd_sub_;
 };
 
 int main(int argc, char **argv)

@@ -22,6 +22,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/OperatorStateAnalysis.msg"
   "msg/Pose.msg"
   "msg/PoseCommand.msg"
+  "msg/PoseCua.msg"
+  "msg/PoseCuaCommand.msg"
   "msg/RobotDetection.msg"
   "msg/RobotOperatorInteraction.msg"
   #"srv/ComputeRectangleArea.srv"
