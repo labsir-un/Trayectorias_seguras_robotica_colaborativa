@@ -27,8 +27,8 @@
 
     <node 
         pkg="colab_supervision_control"
-        exec="operator_condition_node" 
-        name="operator_condition_node" output="screen">
+        exec="operator_condition" 
+        name="operator_condition" output="screen">
 
         <param 
             name="perception_topic"

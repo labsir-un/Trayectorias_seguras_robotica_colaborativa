@@ -32,27 +32,47 @@ ament_target_dependencies(control_supervisor
 
 
 add_executable(
-  operator_condition_node
+  operator_condition
   src/operator_condition.cpp
 )
 
 ament_target_dependencies(
-  operator_condition_node
+  operator_condition
   rclcpp
   std_msgs
   colab_supervision_interfaces
 )
 
 target_include_directories(
-  operator_condition_node
+  operator_condition
   PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
+add_executable(
+  command_validator
+  src/command_validator.cpp
+)
+
+ament_target_dependencies(
+  command_validator
+  rclcpp
+  colab_supervision_interfaces
+)
+
+target_include_directories(
+  command_validator
+  PRIVATE
+    include
+)
+
+
+
 install(TARGETS 
   control_supervisor
-  operator_condition_node
+  operator_condition
+  command_validator
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
