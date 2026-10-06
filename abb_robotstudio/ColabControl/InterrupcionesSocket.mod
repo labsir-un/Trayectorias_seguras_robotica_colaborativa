@@ -21,6 +21,10 @@ MODULE InterrupcionesSocket
     VAR intnum socket_com_in;
     VAR intnum socket_com_out;
     
+    !Variables de mensajes de error para el usuario
+     VAR btnres respuesta_parada_socket;
+     CONST string mensaje_parada_socket{3} := ["Parada del sistema ejecutada desde el socket", "Es necesario realizar rearme de operación", "Reinicie el sistema"];
+    
     TRAP SockParada
         IDelete socket_com_in;
         IDisable;
@@ -31,6 +35,11 @@ MODULE InterrupcionesSocket
         Test_LabSIR:=FALSE;
         Test_25:=FALSE;
         Test_165:=FALSE;
+        UIMsgBox \Header:="Parada ejecutada",
+            mensaje_parada_socket{1} \MsgLine2:=mensaje_parada_socket{2} \MsgLine3:=mensaje_parada_socket{3},
+            \Buttons:=btnOK
+            \Icon:=iconWarning 
+            \Result:=respuesta_parada;
         IWatch ReiniciarRut;
         WHILE Reiniciar <> TRUE DO
             Test_Reinicio:=TRUE;

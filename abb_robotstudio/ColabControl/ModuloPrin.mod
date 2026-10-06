@@ -61,7 +61,7 @@ MODULE ModuloPrin
     VAR speeddata Vel_Acercamiento:=v80;
     VAR speeddata Vel_Acercamiento_Lateral:=v30;
     VAR speeddata Vel_Vacio:=v100;
-    VAR speeddata Vel_Vacio_Rap:=v200;
+    VAR speeddata Vel_Vacio_Rap:=v150;
     VAR speeddata Vel_Proceso:=v60;
     VAR speeddata Vel_Segura:=v30;
     VAR num VelMax:=250;
@@ -76,7 +76,7 @@ MODULE ModuloPrin
     VAR zonedata Z_Segura:=z1;
     
     !Variables de estado del socket
-    PERS string Estado_Socket:="Se esta revisando el comando";
+    PERS string Estado_Socket:="Aplicación en linea. Esperando comandos";
     PERS bool Conectar_Socket:=FALSE;
     PERS robtarget p_actual;
     PERS bool Postura_segura:=FALSE;
@@ -121,7 +121,7 @@ MODULE ModuloPrin
     !Variables de control por socket
     PERS bool Sock_Parada:=FALSE;
     PERS bool Sock_Pausa:=FALSE;
-    PERS bool Sock_Bloquear:=TRUE;
+    PERS bool Sock_Bloquear:=FALSE;
     PERS bool Sock_Reinicio:=FALSE;
     
     !Testigos de funcionamiento
@@ -145,9 +145,10 @@ MODULE ModuloPrin
         Vel_Acercamiento:=v80;
         Vel_Acercamiento_Lateral:=v30;
         Vel_Vacio:=v100;
-        Vel_Vacio_Rap:=v200;
+        Vel_Vacio_Rap:=v150;
         Vel_Proceso:=v60;
         Vel_Segura:=v30;
+        Vel_Vacio_Rap.v_tcp:=120;
         VelMax:=250;
         VelPor:=100;
         Z_Acercamiento:=z1;

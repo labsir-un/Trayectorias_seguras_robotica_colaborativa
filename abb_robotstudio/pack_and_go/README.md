@@ -2,9 +2,9 @@
 
 ## 1. Objetivo
 
-Este documento describe el procedimiento general para iniciar la estación ABB, ejecutar la interfaz `ColabControl` y establecer la comunicación con el controlador mediante socket TCP/IP.
+Este documento describe el procedimiento general para iniciar la estación ABB, ejecutar la interfaz `ColabControl` y establecer la comunicación con el controlador mediante socket TCP/IP usando el programa desarrollado en `PC_SDK` .
 
-El flujo contempla abrir la estación, iniciar el FlexPendant, ejecutar la interfaz, iniciar la simulación, activar `Comenzar`, esperar la detección de `abb_driver` y conectarse al socket correspondiente, siguiendo el enfoque del programa de ejemplo `socket_ver.py`.
+El flujo contempla abrir la estación, iniciar el FlexPendant, ejecutar la interfaz, iniciar la simulación, activar `Comenzar`, iniciar el `AbbBrigeSocket`, generar la conexión correspondiente con el controlador y conectarse al socket correspondiente, siguiendo el enfoque del programa de ejemplo `socket_ver.py`.
 
 ## 2. Requisitos previos
 
@@ -13,7 +13,7 @@ Antes de iniciar, verificar que se dispone de:
 - La estación ABB correspondiente al sistema.
 - FlexPendant disponible y operativo.
 - Interfaz `ColabControl`.
-- `abb_driver` en ejecución y accesible para el sistema.
+- `AbbBrigeSocket` en ejecución y accesible para el sistema.
 - Programa de prueba `socket_ver.py` como referencia para la conexión TCP/IP.
 - Configuración de red y puerto del socket correspondientes al controlador o entorno de simulación.
 
@@ -48,14 +48,20 @@ Antes de iniciar, verificar que se dispone de:
 ### Paso 5. Activar `Comenzar`
 
 1. Desde `ColabControl`, activar la opción `Comenzar`.
-2. Esta acción inicia el proceso de búsqueda/detección de `abb_driver`.
+2. Esta acción inicia el proceso de búsqueda/detección de `AbbBrigeSocket`.
 3. Esperar a que la interfaz identifique el driver.
 
-No se debe intentar establecer la conexión con el socket correspondiente hasta que el proceso de detección indique que `abb_driver` fue encontrado.
+No se debe intentar establecer la conexión con el socket correspondiente hasta que el proceso de detección indique que `AbbBrigeSocket` fue encontrado.
 
-### Paso 6. Conectarse al socket
+### Paso 6. Configuración de controlador
 
-1. Una vez detectado `abb_driver`, seleccionar o utilizar el socket correspondiente a la configuración activa.
+1. En la terminal de `AbbBrigeSocket` seleccione el tipo de controlador que desea conectarse (virtual o real).
+2. Busque el controlador con la dirección IP correspondiente al de la operación o estación.
+3. Verifique que la conexión genere su bandera de conexión establecida.
+
+### Paso 7. Conectarse al socket
+
+1. Una vez detectado `AbbBrigeSocket`, seleccionar o utilizar el socket correspondiente a la configuración activa.
 2. Establecer la conexión TCP/IP siguiendo el procedimiento de `socket_ver.py`.
 3. Verificar que la conexión se haya establecido correctamente antes de enviar comandos.
 4. Mantener la conexión activa durante la ejecución de las pruebas y supervisar los estados de comunicación.
@@ -73,7 +79,7 @@ Iniciar simulación
         ↓
 Activar Comenzar
         ↓
-Buscar y detectar abb_driver
+Buscar y configurar AbbBrigeSocket
         ↓
 Conectarse al socket correspondiente
         ↓
@@ -90,7 +96,7 @@ Antes de operar, confirmar:
 - El FlexPendant muestra el controlador y el programa en el estado esperado.
 - `ColabControl` está ejecutándose.
 - La opción `Comenzar` fue activada.
-- `abb_driver` fue detectado por la interfaz.
+- `AbbBrigeSocket` fue detectado por la interfaz.
 - La conexión al socket correspondiente se estableció correctamente.
 - La comunicación permite intercambiar mensajes conforme al protocolo implementado.
 
@@ -102,7 +108,7 @@ Los parámetros concretos de conexión —por ejemplo, dirección IP, puerto, fo
 
 ## 7. Consideraciones
 
-- La detección de `abb_driver` y la conexión TCP/IP son etapas distintas: detectar el driver no implica necesariamente que el socket ya esté conectado.
+- La detección de ``bbBrigeSocket` y la conexión TCP/IP son etapas distintas: detectar el driver no implica necesariamente que el socket ya esté conectado.
 - No enviar comandos de movimiento hasta verificar que el controlador, el programa RAPID y la comunicación estén en condiciones de operación.
 - Ante una desconexión, error de comunicación o estado inesperado, detener la prueba y revisar el estado del controlador y la conexión antes de reanudar.
 - Este procedimiento documenta la secuencia de puesta en marcha; no reemplaza los procedimientos de seguridad ni las verificaciones de la celda.

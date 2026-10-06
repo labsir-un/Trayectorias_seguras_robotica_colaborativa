@@ -29,6 +29,13 @@ MODULE Interrupciones
      VAR intnum IncrementoIndicesContactoCirculo;
      VAR intnum IncrementoIndicesVacio;
      
+     !Variables de mensajes de error para el usuario
+     VAR btnres respuesta_parada;
+     CONST string mensaje_parada{3} := ["Parada del sistema ejecutada", "Es necesario realizar rearme de operación", "Reinicie el sistema"];
+     
+     VAR btnres respuesta_reinicio;
+     CONST string mensaje_reinicio{3} := ["Reinicio del sistema ejecutado", "Se reiniciara todo el sistema", "es necesario reiniciar el sistema de supervisión"];
+     
     TRAP Path_Home_DI
         IDelete socket_com_in;
         IDisable;
@@ -271,6 +278,11 @@ MODULE Interrupciones
         Test_LabSIR:=FALSE;
         Test_25:=FALSE;
         Test_165:=FALSE;
+        UIMsgBox \Header:="Parada ejecutada",
+            mensaje_parada{1} \MsgLine2:=mensaje_parada{2} \MsgLine3:=mensaje_parada{3},
+            \Buttons:=btnOK
+            \Icon:=iconWarning 
+            \Result:=respuesta_parada;
         IWatch ReiniciarRut;
         WHILE Reiniciar <> TRUE DO
             Test_Reinicio:=TRUE;
@@ -310,6 +322,11 @@ MODULE Interrupciones
         Test_25:=FALSE;
         Test_165:=FALSE;
         Test_Reinicio:=TRUE;
+        UIMsgBox \Header:="Reinicio ejecutado",
+            mensaje_reinicio{1} \MsgLine2:=mensaje_reinicio{2} \MsgLine3:=mensaje_reinicio{3},
+            \Buttons:=btnOK
+            \Icon:=iconWarning 
+            \Result:=respuesta_parada;
         StartMove;
         IF Reiniciar = TRUE THEN
             MoveJ Target_Home_10,Vel_Vacio_Rap,Z_Vacio_Rap,Prototipo_JSDaleman\WObj:=wobj0;

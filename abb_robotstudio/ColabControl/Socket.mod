@@ -13,11 +13,11 @@ MODULE Socket
     !***********************************************************
     
     !Elementos socket
-    PERS bool app_conect:=TRUE;
+    PERS bool app_conect:=FALSE;
     CONST num tiempo_envio:=0.001;
     
     !Mensaje de control
-    PERS string respuesta_robot:="Sock_Reinicio, valor cambiado a: TRUE"; 
+    PERS string respuesta_robot:=" "; 
     PERS string cmd := "";
     VAR string Prefijo:="";
     VAR string ObjComando:="";
