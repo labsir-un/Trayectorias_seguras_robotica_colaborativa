@@ -1,8 +1,8 @@
 #include "colab_supervision_control/control_decision.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -18,7 +18,10 @@ ControlDecision::ControlDecision()
 : Node("control_decision")
 {
   // ==========================================================================
-  // INPUT TOPICS
+  // TOPICS DE ENTRADA
+  //
+  // Este nodo NO recibe información de cámaras ni datos de percepción de bajo
+  // nivel. Las entradas corresponden exclusivamente a estados procesados.
   // ==========================================================================
 
   operator_state_topic_ = declare_parameter<std::string>(
@@ -37,7 +40,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // OUTPUT TOPIC
+  // TOPIC DE SALIDA
   // ==========================================================================
 
   command_topic_ = declare_parameter<std::string>(
@@ -46,7 +49,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // DECISION TIMING
+  // TEMPORIZACIÓN
   // ==========================================================================
 
   decision_rate_hz_ = declare_parameter<double>(
@@ -65,16 +68,14 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // ZONES
+  // ZONAS
   //
-  // The interaction interface contains distance but not an explicit zone.
-  // Therefore, the zone is determined from configurable distance boundaries.
+  // Z3: d <  0.250 m
+  // Z4: 0.250 m <= d < 0.400 m
+  // Z5: 0.400 m <= d <= 1.600 m
+  // Z6: d > 1.600 m
   //
-  // Defaults:
-  //   Z3: d < 0.250 m
-  //   Z4: 0.250 m <= d < 0.400 m
-  //   Z5: 0.400 m <= d <= 1.600 m
-  //   Z6: d > 1.600 m
+  // La distancia ya fue calculada por robot_operator_interaction.
   // ==========================================================================
 
   zone3_max_distance_ = declare_parameter<double>(
@@ -93,7 +94,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // SPEED PROFILE
+  // PERFIL DE VELOCIDAD
   // ==========================================================================
 
   full_speed_distance_ = declare_parameter<double>(
@@ -127,7 +128,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // OPERATOR CONDITIONS
+  // CONDICIONES ANÓMALAS DEL OPERADOR
   // ==========================================================================
 
   pause_on_fatigue_high_ = declare_parameter<bool>(
@@ -146,13 +147,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // TRAJECTORY SAFETY
-  //
-  // There is no explicit trajectory-safety result in the three input topics.
-  // Therefore this node uses a conservative current-state check as a temporary
-  // decision criterion. This is intentionally isolated in
-  // trajectory_keeps_separation(), so a future FK/trajectory evaluator can
-  // replace it without changing the decision hierarchy.
+  // EVALUACIÓN DE TRAYECTORIA
   // ==========================================================================
 
   conservative_trajectory_check_ = declare_parameter<bool>(
@@ -166,7 +161,7 @@ ControlDecision::ControlDecision()
   );
 
   // ==========================================================================
-  // VALIDATION
+  // VALIDACIÓN DE PARÁMETROS
   // ==========================================================================
 
   if (decision_rate_hz_ <= 0.0) {
@@ -201,7 +196,8 @@ ControlDecision::ControlDecision()
 
   if (zone5_max_distance_ < zone4_max_distance_) {
     throw std::invalid_argument(
-      "zone5_max_distance must be greater than or equal to zone4_max_distance"
+      "zone5_max_distance must be greater than or equal to "
+      "zone4_max_distance"
     );
   }
 
@@ -217,6 +213,16 @@ ControlDecision::ControlDecision()
     );
   }
 
+  if (
+    full_speed_percent_ < 0.0 ||
+    half_speed_percent_ < 0.0 ||
+    minimum_speed_percent_ < 0.0
+  ) {
+    throw std::invalid_argument(
+      "Speed percentages must be non-negative"
+    );
+  }
+
   if (trajectory_min_separation_distance_ < 0.0) {
     throw std::invalid_argument(
       "trajectory_min_separation_distance must be non-negative"
@@ -224,7 +230,7 @@ ControlDecision::ControlDecision()
   }
 
   // ==========================================================================
-  // SUBSCRIBERS
+  // SUBSCRIBER: ESTADO PROCESADO DEL OPERADOR
   // ==========================================================================
 
   operator_state_sub_ =
@@ -240,6 +246,10 @@ ControlDecision::ControlDecision()
       )
     );
 
+  // ==========================================================================
+  // SUBSCRIBER: INTERACCIÓN PROCESADA
+  // ==========================================================================
+
   interaction_sub_ =
     create_subscription<
       colab_supervision_interfaces::msg::RobotOperatorInteraction
@@ -252,6 +262,10 @@ ControlDecision::ControlDecision()
         std::placeholders::_1
       )
     );
+
+  // ==========================================================================
+  // SUBSCRIBER: TRAYECTORIA DE MOVEIT
+  // ==========================================================================
 
   trajectory_sub_ =
     create_subscription<
@@ -267,7 +281,7 @@ ControlDecision::ControlDecision()
     );
 
   // ==========================================================================
-  // COMMAND PUBLISHER
+  // PUBLISHER: COMANDO DE CONTROL
   // ==========================================================================
 
   command_pub_ =
@@ -279,7 +293,7 @@ ControlDecision::ControlDecision()
     );
 
   // ==========================================================================
-  // DECISION TIMER
+  // TIMER
   // ==========================================================================
 
   const auto period =
@@ -299,7 +313,7 @@ ControlDecision::ControlDecision()
     );
 
   // ==========================================================================
-  // INITIAL LOG
+  // LOG INICIAL
   // ==========================================================================
 
   RCLCPP_INFO(
@@ -314,32 +328,26 @@ ControlDecision::ControlDecision()
 
   RCLCPP_INFO(
     get_logger(),
-    "Operator state : %s",
+    "Processed operator state: %s",
     operator_state_topic_.c_str()
   );
 
   RCLCPP_INFO(
     get_logger(),
-    "Interaction    : %s",
+    "Processed interaction: %s",
     interaction_topic_.c_str()
   );
 
   RCLCPP_INFO(
     get_logger(),
-    "Trajectory     : %s",
+    "MoveIt trajectory: %s",
     trajectory_topic_.c_str()
   );
 
   RCLCPP_INFO(
     get_logger(),
-    "Command output  : %s",
+    "Control command: %s",
     command_topic_.c_str()
-  );
-
-  RCLCPP_INFO(
-    get_logger(),
-    "Decision rate   : %.2f Hz",
-    decision_rate_hz_
   );
 
   RCLCPP_INFO(
@@ -353,13 +361,18 @@ ControlDecision::ControlDecision()
 
   RCLCPP_INFO(
     get_logger(),
+    "No raw camera information is consumed by this node"
+  );
+
+  RCLCPP_INFO(
+    get_logger(),
     "===================================================="
   );
 }
 
 
 // ============================================================================
-// CALLBACKS
+// CALLBACK: ESTADO DEL OPERADOR
 // ============================================================================
 
 void ControlDecision::operator_state_callback(
@@ -370,13 +383,35 @@ void ControlDecision::operator_state_callback(
 }
 
 
+// ============================================================================
+// CALLBACK: INTERACCIÓN
+// ============================================================================
+
 void ControlDecision::interaction_callback(
   const colab_supervision_interfaces::msg::RobotOperatorInteraction::SharedPtr msg)
 {
   latest_interaction_ = *msg;
   interaction_received_time_ = get_clock()->now();
+
+  // Se conserva únicamente la última distancia que ya fue calculada y
+  // validada por robot_operator_interaction.
+  if (
+    msg->interaction_valid &&
+    std::isfinite(msg->distance) &&
+    msg->distance >= 0.0
+  ) {
+    last_valid_distance_ =
+      static_cast<double>(msg->distance);
+
+    last_valid_distance_time_ =
+      interaction_received_time_;
+  }
 }
 
+
+// ============================================================================
+// CALLBACK: TRAYECTORIA
+// ============================================================================
 
 void ControlDecision::trajectory_callback(
   const moveit_msgs::msg::RobotTrajectory::SharedPtr msg)
@@ -402,37 +437,61 @@ void ControlDecision::decision_timer_callback()
 
 
 // ============================================================================
-// INPUT AVAILABILITY
+// FRESHNESS
 // ============================================================================
 
-bool ControlDecision::is_detection_system_available() const
+bool ControlDecision::is_operator_state_fresh() const
 {
-  const auto now =
-    get_clock()->now();
+  if (!latest_operator_state_.has_value()) {
+    return false;
+  }
 
-  const bool operator_state_ok =
-    latest_operator_state_.has_value() &&
-    (now - operator_state_received_time_).seconds() <= max_input_age_sec_;
-
-  const bool interaction_ok =
-    latest_interaction_.has_value() &&
-    (now - interaction_received_time_).seconds() <= max_input_age_sec_;
-
-  return operator_state_ok && interaction_ok;
+  return (
+    get_clock()->now() -
+    operator_state_received_time_
+  ).seconds() <= max_input_age_sec_;
 }
 
 
-bool ControlDecision::input_data_available() const
+bool ControlDecision::is_interaction_fresh() const
 {
+  if (!latest_interaction_.has_value()) {
+    return false;
+  }
+
   return (
-    latest_operator_state_.has_value() &&
-    latest_interaction_.has_value()
+    get_clock()->now() -
+    interaction_received_time_
+  ).seconds() <= max_input_age_sec_;
+}
+
+
+bool ControlDecision::is_trajectory_fresh() const
+{
+  if (!latest_trajectory_.has_value()) {
+    return false;
+  }
+
+  return (
+    get_clock()->now() -
+    trajectory_received_time_
+  ).seconds() <= max_trajectory_age_sec_;
+}
+
+
+bool ControlDecision::detection_information_available() const
+{
+  // La decisión solamente confía en los dos estados que provienen de los
+  // nodos de preprocesamiento/supervisión.
+  return (
+    is_operator_state_fresh() &&
+    is_interaction_fresh()
   );
 }
 
 
 // ============================================================================
-// OPERATOR CONDITION
+// CONDICIÓN ANÓMALA DEL OPERADOR
 // ============================================================================
 
 bool ControlDecision::operator_condition_anomalous() const
@@ -470,7 +529,7 @@ bool ControlDecision::operator_condition_anomalous() const
 
 
 // ============================================================================
-// COLLISION
+// RIESGO CRÍTICO
 // ============================================================================
 
 bool ControlDecision::collision_is_critical() const
@@ -490,13 +549,16 @@ bool ControlDecision::collision_is_critical() const
 
 
 // ============================================================================
-// ZONE
+// DETERMINACIÓN DE ZONA
 // ============================================================================
 
 ControlDecision::Zone
 ControlDecision::determine_zone(double distance) const
 {
-  if (!std::isfinite(distance) || distance < 0.0) {
+  if (
+    !std::isfinite(distance) ||
+    distance < 0.0
+  ) {
     return Zone::UNKNOWN;
   }
 
@@ -505,12 +567,12 @@ ControlDecision::determine_zone(double distance) const
     return Zone::Z3;
   }
 
-  // Z4: 0.250 m <= d < 0.400 m
+  // Z4: 0.250 <= d < 0.400 m
   if (distance < zone4_max_distance_) {
     return Zone::Z4;
   }
 
-  // Z5: 0.400 m <= d <= 1.600 m
+  // Z5: 0.400 <= d <= 1.600 m
   if (distance <= zone5_max_distance_) {
     return Zone::Z5;
   }
@@ -520,7 +582,8 @@ ControlDecision::determine_zone(double distance) const
 }
 
 
-std::string ControlDecision::zone_to_string(Zone zone) const
+const char * ControlDecision::zone_to_string(
+  Zone zone) const
 {
   switch (zone) {
 
@@ -543,26 +606,82 @@ std::string ControlDecision::zone_to_string(Zone zone) const
 
 
 // ============================================================================
-// TRAJECTORY
+// DISTANCIA
+// ============================================================================
+
+bool ControlDecision::get_current_or_last_valid_distance(
+  double & distance) const
+{
+  // --------------------------------------------------------------------------
+  // Distancia actual procesada
+  // --------------------------------------------------------------------------
+
+  if (latest_interaction_.has_value()) {
+
+    const auto & interaction =
+      *latest_interaction_;
+
+    if (
+      interaction.interaction_valid &&
+      std::isfinite(interaction.distance) &&
+      interaction.distance >= 0.0
+    ) {
+      distance =
+        static_cast<double>(
+          interaction.distance
+        );
+
+      return true;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Última distancia procesada válida
+  //
+  // No se recalcula ni se promedia.
+  // --------------------------------------------------------------------------
+
+  if (last_valid_distance_.has_value()) {
+
+    const double age =
+      (
+        get_clock()->now() -
+        last_valid_distance_time_
+      ).seconds();
+
+    if (age <= max_input_age_sec_) {
+
+      distance =
+        *last_valid_distance_;
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+// ============================================================================
+// TRAYECTORIA
 // ============================================================================
 
 bool ControlDecision::trajectory_available() const
 {
-  if (!latest_trajectory_.has_value()) {
-    return false;
-  }
-
-  return !latest_trajectory_->joint_trajectory.points.empty();
+  return (
+    latest_trajectory_.has_value() &&
+    is_trajectory_fresh() &&
+    !latest_trajectory_->joint_trajectory.points.empty()
+  );
 }
 
 
 bool ControlDecision::trajectory_target_reachable() const
 {
-  // MoveIt provides a trajectory only when a planning result has produced
-  // trajectory points. This is used as the current reachability indication.
+  // Una trayectoria fresca con puntos representa, con la información
+  // actualmente disponible, un resultado de planificación válido de MoveIt.
   //
-  // A future planner-specific result can replace this method if a more
-  // explicit reachability status is available.
+  // No se interpreta como una verificación geométrica completa de seguridad.
   return trajectory_available();
 }
 
@@ -574,27 +693,18 @@ bool ControlDecision::trajectory_keeps_separation(
   // --------------------------------------------------------------------------
   // Z6
   // --------------------------------------------------------------------------
-  //
-  // At Z6, the decision matrix identifies the condition as safe when there is
-  // no anomaly. Therefore the current separation is considered sufficient.
-  // --------------------------------------------------------------------------
 
   if (zone == Zone::Z6) {
     return true;
   }
 
-  // --------------------------------------------------------------------------
-  // Conservative current-state check for Z4/Z5
-  // --------------------------------------------------------------------------
-
   if (!conservative_trajectory_check_) {
     return false;
   }
 
-  if (
-    distance <
-    trajectory_min_separation_distance_
-  ) {
+  // Si la distancia actual ya es inferior a la separación mínima requerida,
+  // la trayectoria no se considera ejecutable bajo esa separación.
+  if (distance < trajectory_min_separation_distance_) {
     return false;
   }
 
@@ -605,6 +715,7 @@ bool ControlDecision::trajectory_keeps_separation(
   const auto & interaction =
     *latest_interaction_;
 
+  // El nodo de interacción ya clasificó el riesgo.
   if (
     interaction.collision_imminent ||
     interaction.collision_risk == "CRITICAL" ||
@@ -618,27 +729,23 @@ bool ControlDecision::trajectory_keeps_separation(
 
 
 // ============================================================================
-// SPEED PROFILE
+// PERFIL DE VELOCIDAD
 // ============================================================================
 
-int ControlDecision::compute_speed_percent(double distance) const
+int ControlDecision::compute_speed_percent(
+  double distance) const
 {
   double speed;
 
-  // --------------------------------------------------------------------------
   // >= 1.900 m -> 100 %
-  // --------------------------------------------------------------------------
-
   if (distance >= full_speed_distance_) {
 
     speed =
       full_speed_percent_;
+  }
 
-  // --------------------------------------------------------------------------
-  // 1.600 m <= d < 1.900 m -> 100 ... 50 %
-  // --------------------------------------------------------------------------
-
-  } else if (distance >= half_speed_distance_) {
+  // 1.600 <= d < 1.900 -> 100 ... 50 %
+  else if (distance >= half_speed_distance_) {
 
     const double normalized =
       (
@@ -660,12 +767,10 @@ int ControlDecision::compute_speed_percent(double distance) const
         ratio,
         normalized
       );
+  }
 
-  // --------------------------------------------------------------------------
-  // 0.400 m <= d < 1.600 m -> 50 ... 5 %
-  // --------------------------------------------------------------------------
-
-  } else if (distance >= minimum_speed_distance_) {
+  // 0.400 <= d < 1.600 -> 50 ... 5 %
+  else if (distance >= minimum_speed_distance_) {
 
     const double normalized =
       (
@@ -687,12 +792,10 @@ int ControlDecision::compute_speed_percent(double distance) const
         ratio,
         normalized
       );
+  }
 
-  // --------------------------------------------------------------------------
-  // < 0.400 m -> 5 %
-  // --------------------------------------------------------------------------
-
-  } else {
+  // d < 0.400 -> 5 %
+  else {
 
     speed =
       minimum_speed_percent_;
@@ -712,7 +815,7 @@ int ControlDecision::compute_speed_percent(double distance) const
 
 
 // ============================================================================
-// COMMAND BUILDERS
+// COMANDOS
 // ============================================================================
 
 ControlDecision::DecisionResult
@@ -803,28 +906,24 @@ ControlDecision::make_normal_operation(
 
 
 // ============================================================================
-// MAIN DECISION HIERARCHY
+// JERARQUÍA PRINCIPAL DE DECISIÓN
 // ============================================================================
 
 ControlDecision::DecisionResult
 ControlDecision::evaluate_decision()
 {
   // ==========================================================================
-  // PRIORITY 1
+  // PRIORIDAD 1
   //
-  // Any failure or unavailability of the detection system.
+  // Indisponibilidad de las salidas procesadas de los nodos de percepción.
   // ==========================================================================
 
-  if (!is_detection_system_available()) {
+  if (!detection_information_available()) {
 
     return make_emergency_stop(
-      "PRIORITY 1: detection system failure or unavailable input"
+      "PRIORITY 1: processed detection information unavailable"
     );
   }
-
-  // ==========================================================================
-  // CURRENT DATA
-  // ==========================================================================
 
   const auto & operator_state =
     *latest_operator_state_;
@@ -835,27 +934,61 @@ ControlDecision::evaluate_decision()
   const bool operator_present =
     operator_state.operator_present;
 
-  const bool interaction_valid =
-    interaction.interaction_valid;
-
-  const bool distance_valid =
-    interaction_valid &&
-    std::isfinite(interaction.distance) &&
-    interaction.distance >= 0.0;
-
   // ==========================================================================
-  // PRIORITY 1 - INVALID INTERACTION DATA
+  // DISTANCIA
   // ==========================================================================
 
-  if (!interaction_valid || !distance_valid) {
+  double distance = 0.0;
 
-    return make_emergency_stop(
-      "PRIORITY 1: interaction/distance data unavailable"
+  const bool distance_available =
+    get_current_or_last_valid_distance(
+      distance
+    );
+
+  // ==========================================================================
+  // OPERADOR NO PRESENTE
+  //
+  // operator_state ya contiene la condición procesada temporalmente.
+  // No se realiza una nueva evaluación de los frames.
+  // ==========================================================================
+
+  if (!operator_present) {
+
+    if (distance_available) {
+
+      const Zone zone =
+        determine_zone(distance);
+
+      // Matriz:
+      // Z6 + operador no disponible -> pausa controlada
+      if (zone == Zone::Z6) {
+
+        return make_pause(
+          "PRIORITY 3: operator unavailable in Z6"
+        );
+      }
+    }
+
+    // Si el operador no está presente y no existe una nueva distancia válida,
+    // se evita interpretar esto como una falla de detección.
+    return make_pause(
+      "PRIORITY 3: operator unavailable; waiting for valid collaborative state"
     );
   }
 
-  const double distance =
-    interaction.distance;
+  // ==========================================================================
+  // OPERADOR PRESENTE -> DISTANCIA NECESARIA
+  // ==========================================================================
+
+  if (
+    !distance_available ||
+    !interaction.interaction_valid
+  ) {
+
+    return make_emergency_stop(
+      "PRIORITY 1: valid processed operator-robot distance unavailable"
+    );
+  }
 
   const Zone zone =
     determine_zone(distance);
@@ -868,15 +1001,12 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // PRIORITY 2 - Z3
+  // PRIORIDAD 2
   //
-  // Operator detected in Z3 -> safe stop.
+  // Z3 + operador detectado -> detención segura
   // ==========================================================================
 
-  if (
-    zone == Zone::Z3 &&
-    operator_present
-  ) {
+  if (zone == Zone::Z3) {
 
     return make_safe_stop(
       "PRIORITY 2: operator detected in Z3"
@@ -884,7 +1014,9 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // PRIORITY 2 - CRITICAL COLLISION RISK IN Z4/Z5
+  // PRIORIDAD 2
+  //
+  // Z4/Z5 + riesgo crítico -> detención segura
   // ==========================================================================
 
   if (
@@ -893,20 +1025,17 @@ ControlDecision::evaluate_decision()
   ) {
 
     return make_safe_stop(
-      "PRIORITY 2: critical collision risk in Z4 or Z5"
+      "PRIORITY 2: critical collision risk in Z4/Z5"
     );
   }
 
   // ==========================================================================
-  // PRIORITY 3 - OPERATOR ANOMALY
+  // PRIORIDAD 3
   //
-  // High fatigue or an attention condition configured as anomalous.
+  // Fatiga elevada o condición anómala
   // ==========================================================================
 
-  if (
-    operator_present &&
-    operator_condition_anomalous()
-  ) {
+  if (operator_condition_anomalous()) {
 
     return make_pause(
       "PRIORITY 3: elevated fatigue or anomalous operator condition"
@@ -914,32 +1043,23 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // PRIORITY 3 - TARGET NOT REACHABLE
+  // PRIORIDAD 3
   //
-  // A trajectory with no points is considered unavailable/unreachable for the
-  // current target.
+  // Objetivo no alcanzable / trayectoria no disponible
   // ==========================================================================
 
   const bool target_reachable =
     trajectory_target_reachable();
 
-  if (
-    (zone == Zone::Z4 || zone == Zone::Z5 || zone == Zone::Z6) &&
-    !target_reachable
-  ) {
+  if (!target_reachable) {
 
-    if (zone == Zone::Z4 || zone == Zone::Z5) {
-
-      return make_pause(
-        "PRIORITY 3: target point not reachable under current conditions"
-      );
-    }
-
-    // In Z6, operator loss has a specific priority-3 condition below.
-    if (!operator_present) {
+    if (
+      zone == Zone::Z4 ||
+      zone == Zone::Z5
+    ) {
 
       return make_pause(
-        "PRIORITY 3: operator unavailable in Z6"
+        "PRIORITY 3: target point not reachable under current safety conditions"
       );
     }
 
@@ -949,30 +1069,16 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // PRIORITY 3 - Z6 + OPERATOR NOT DETECTED
-  // ==========================================================================
-
-  if (
-    zone == Zone::Z6 &&
-    !operator_present
-  ) {
-
-    return make_pause(
-      "PRIORITY 3: operator not available in Z6"
-    );
-  }
-
-  // ==========================================================================
-  // PRIORITY 4 - TRAJECTORY CANNOT MAINTAIN SEPARATION
+  // PRIORIDAD 4
   //
-  // The current implementation uses a conservative current-state test. The
-  // trajectory-wide geometric evaluation can replace this later.
+  // Z4/Z5 + trayectoria que no puede mantener separación
+  //
+  // -> aumentar distancia + reducir velocidad
   // ==========================================================================
 
   if (
-    operator_present &&
-    (zone == Zone::Z4 || zone == Zone::Z5 || zone == Zone::Z6) &&
-    target_reachable
+    zone == Zone::Z4 ||
+    zone == Zone::Z5
   ) {
 
     const bool maintains_separation =
@@ -981,13 +1087,12 @@ ControlDecision::evaluate_decision()
         distance
       );
 
-    if (
-      (zone == Zone::Z4 || zone == Zone::Z5) &&
-      !maintains_separation
-    ) {
+    if (!maintains_separation) {
 
       const int speed =
-        compute_speed_percent(distance);
+        compute_speed_percent(
+          distance
+        );
 
       return make_increase_distance(
         speed,
@@ -998,61 +1103,43 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // PRIORITY 5 - Z4/Z5 SAFE TRAJECTORY
+  // PRIORIDAD 5
   //
-  // Reduce speed according to the distance profile.
+  // Z4/Z5 + trayectoria segura
+  //
+  // -> reducción de velocidad
   // ==========================================================================
 
   if (
-    (zone == Zone::Z4 || zone == Zone::Z5) &&
-    operator_present &&
-    target_reachable
+    zone == Zone::Z4 ||
+    zone == Zone::Z5
   ) {
 
     const int speed =
-      compute_speed_percent(distance);
+      compute_speed_percent(
+        distance
+      );
 
     return make_limit_speed(
       speed,
-      "PRIORITY 5: Z4/Z5 trajectory can execute with separation; "
-      "speed reduction required"
+      "PRIORITY 5: Z4/Z5 trajectory can execute while maintaining separation"
     );
   }
 
   // ==========================================================================
-  // PRIORITY 5 - Z5 / NOT REACHABLE / COLLABORATIVE CONDITION
+  // PRIORIDAD 6
   //
-  // The matrix contains a specific Z5 row for a non-reachable condition.
-  // Without a separate reachability reason in the current trajectory message,
-  // this case is represented by the conservative speed-limiting command.
+  // Z6 + operador presente + sin condición anómala
+  //
+  // -> operación normal
   // ==========================================================================
 
-  if (
-    (zone == Zone::Z4 || zone == Zone::Z5) &&
-    !target_reachable
-  ) {
+  if (zone == Zone::Z6) {
 
     const int speed =
-      compute_speed_percent(distance);
-
-    return make_limit_speed(
-      speed,
-      "PRIORITY 5: Z4/Z5 collaborative condition with unavailable target"
-    );
-  }
-
-  // ==========================================================================
-  // PRIORITY 6 - Z6, OPERATOR PRESENT, NO ANOMALY
-  // ==========================================================================
-
-  if (
-    zone == Zone::Z6 &&
-    operator_present &&
-    target_reachable
-  ) {
-
-    const int speed =
-      compute_speed_percent(distance);
+      compute_speed_percent(
+        distance
+      );
 
     return make_normal_operation(
       speed,
@@ -1061,7 +1148,7 @@ ControlDecision::evaluate_decision()
   }
 
   // ==========================================================================
-  // FAIL-SAFE FALLBACK
+  // FAIL-SAFE
   // ==========================================================================
 
   return make_pause(
@@ -1071,7 +1158,7 @@ ControlDecision::evaluate_decision()
 
 
 // ============================================================================
-// PUBLICATION
+// PUBLICACIÓN
 // ============================================================================
 
 void ControlDecision::publish_command(
@@ -1092,7 +1179,7 @@ void ControlDecision::publish_command(
     result.value;
 
   // --------------------------------------------------------------------------
-  // Avoid unnecessary duplicate logs, but continue publishing the command.
+  // Firma para diagnóstico: permite saber cuándo cambia realmente la decisión.
   // --------------------------------------------------------------------------
 
   std::ostringstream signature_stream;
@@ -1107,19 +1194,13 @@ void ControlDecision::publish_command(
     signature_stream.str();
 
   if (
-    signature !=
-    last_published_signature_
+    !initialized_ ||
+    signature != last_published_signature_
   ) {
 
     RCLCPP_INFO(
       get_logger(),
-
-      "COMMAND: %s | "
-      "object=%s | "
-      "variable=%s | "
-      "value=%s | "
-      "reason=%s",
-
+      "COMMAND: %s | object=%s | variable=%s | value=%s | reason=%s",
       result.command.c_str(),
       result.object.c_str(),
       result.variable.c_str(),
@@ -1131,9 +1212,7 @@ void ControlDecision::publish_command(
       signature;
   }
 
-  command_pub_->publish(
-    msg
-  );
+  command_pub_->publish(msg);
 }
 
 }  // namespace colab_supervision_control
@@ -1147,10 +1226,7 @@ int main(
   int argc,
   char * argv[])
 {
-  rclcpp::init(
-    argc,
-    argv
-  );
+  rclcpp::init(argc, argv);
 
   try {
 
@@ -1159,17 +1235,13 @@ int main(
         colab_supervision_control::ControlDecision
       >();
 
-    rclcpp::spin(
-      node
-    );
+    rclcpp::spin(node);
 
   } catch (
     const std::exception & error) {
 
     RCLCPP_FATAL(
-      rclcpp::get_logger(
-        "control_decision"
-      ),
+      rclcpp::get_logger("control_decision"),
       "Node initialization failed: %s",
       error.what()
     );
