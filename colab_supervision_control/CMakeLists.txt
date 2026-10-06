@@ -12,6 +12,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
 find_package(colab_supervision_interfaces REQUIRED)
 
 add_executable(
@@ -67,12 +68,31 @@ target_include_directories(
     include
 )
 
+add_executable(
+  control_decision
+  src/control_decision.cpp
+)
+
+ament_target_dependencies(
+  control_decision
+  rclcpp
+  moveit_msgs
+  colab_supervision_interfaces
+)
+
+target_include_directories(
+  control_decision
+  PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
 
 
 install(TARGETS 
   control_supervisor
   operator_condition
   command_validator
+  control_decision
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/

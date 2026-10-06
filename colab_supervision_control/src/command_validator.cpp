@@ -18,11 +18,11 @@ class ControlCommandValidatorNode : public rclcpp::Node
 public:
 
   ControlCommandValidatorNode()
-  : Node("ControlCommand_validator_node")
+  : Node("Control_cmd_validator")
   {
     ControlCommand_subscriber_ =
       this->create_subscription<ControlCommand>(
-        "/ControlCommand/request",
+        "/control/command",
         10,
         std::bind(
           &ControlCommandValidatorNode::ControlCommandCallback,
@@ -31,7 +31,7 @@ public:
 
     ControlCommand_publisher_ =
       this->create_publisher<ControlCommand>(
-        "/ControlCommand/validated",
+        "/control/command_validated",
         10);
 
     RCLCPP_INFO(
