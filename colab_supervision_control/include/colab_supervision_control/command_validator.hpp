@@ -333,7 +333,8 @@ private:
       value == "wobjdataEuler" ||
       value == "wobjdataCua" ||
       value == "robtargetEuler" ||
-      value == "robtargetCua";
+      value == "robtargetCua" || 
+      value == "joints";
   }
 };
 

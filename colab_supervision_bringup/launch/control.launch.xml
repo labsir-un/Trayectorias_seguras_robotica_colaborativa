@@ -12,6 +12,18 @@
         description="Topic OperatorPerception de entrada"
     />
 
+    <arg 
+        name="trajectory_topic" 
+        default="/control/trajectory" 
+        description="Trayectoria planificada por MoveIt"
+    />
+
+    <arg 
+        name="command_topic" 
+        default="/control/command" 
+        description="Comando final de control supervisado"
+    />
+
     <node
         pkg="colab_supervision_control"
         exec="control_supervisor"
@@ -35,6 +47,40 @@
             value="$(var perception_operator_topic)"
         />
 
+    </node>
+
+    <node 
+        pkg="colab_supervision_control" 
+        exec="control_decision" 
+        name="control_decision" 
+        output="screen">
+        
+        <param 
+            name="operator_state_topic" 
+            value="$(var perception_operator_topic)"
+        />
+    
+        <param 
+            name="interaction_topic"
+            value="$(var interaction_topic)"
+        />
+    
+        <param 
+            name="trajectory_topic" 
+            value="$(var trajectory_topic)"
+        />
+
+        <param 
+            name="command_topic" 
+            value="$(var command_topic)"
+        />
+            
+    </node>
+
+    <node 
+        pkg="colab_supervision_control" 
+        exec="command_validator" 
+        output="screen">
     </node>
 
 </launch>
