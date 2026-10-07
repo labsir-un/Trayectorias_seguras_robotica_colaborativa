@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
+#include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <colab_supervision_interfaces/msg/joints.hpp>
 #include <colab_supervision_interfaces/msg/pose_command.hpp>
 #include <colab_supervision_interfaces/msg/pose_cua_command.hpp>
@@ -23,6 +24,10 @@ class Commander
             RCLCPP_INFO(node_->get_logger(), "TCP actual: %s", irb140_->getEndEffectorLink().c_str());
             irb140_->setMaxVelocityScalingFactor(0.5);
             irb140_->setMaxAccelerationScalingFactor(0.5);
+
+            trajectory_pub_ =
+                node_->create_publisher<moveit_msgs::msg::RobotTrajectory>(
+                    "/control/trajectory", 10);
 
             named_target_sub_ = node_->create_subscription<NameCmd>(
                 "name_command", 10, std::bind(&Commander::nameCmdCallback, this, _1));
@@ -82,6 +87,7 @@ class Commander
                 double fraction = irb140_->computeCartesianPath(waypoints, 0.01, trajectory);
 
                 if (fraction == 1){
+                    trajectory_pub_->publish(trajectory);
                     irb140_->execute(trajectory);
                 }
             }
@@ -115,6 +121,7 @@ class Commander
                 double fraction = irb140_->computeCartesianPath(waypoints, 0.01, trajectory);
 
                 if (fraction == 1){
+                    trajectory_pub_->publish(trajectory);
                     irb140_->execute(trajectory);
                 }
             }
@@ -128,6 +135,7 @@ class Commander
             bool success = (interface->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
 
             if (success) {
+                trajectory_pub_->publish(plan.trajectory);
                 interface->execute(plan);
             }
         }
@@ -162,6 +170,8 @@ class Commander
 
         std::shared_ptr<rclcpp::Node> node_;
         std::shared_ptr<MoveGroupInterface> irb140_;
+
+        rclcpp::Publisher<moveit_msgs::msg::RobotTrajectory>::SharedPtr trajectory_pub_;
         
         rclcpp::Subscription<NameCmd>::SharedPtr named_target_sub_;
         rclcpp::Subscription<FloatArray>::SharedPtr joint_cmd_sub_;
