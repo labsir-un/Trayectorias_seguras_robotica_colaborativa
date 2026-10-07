@@ -9,7 +9,7 @@
 
 #include <colab_supervision_interfaces/msg/control_command.hpp>
 #include <colab_supervision_interfaces/msg/operator_state_analysis.hpp>
-#include <colab_supervision_interfaces/msg/robot_operator_interaction.hpp>
+#include <colab_supervision_interfaces/msg/robot_operator_supervision.hpp>
 
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 
@@ -23,9 +23,14 @@ public:
   ~ControlDecision() override = default;
 
 private:
-  // ===========================================================================
-  // ZONAS DE OPERACIÓN
-  // ===========================================================================
+  // ==========================================================================
+  // OPERATING ZONES
+  //
+  // Z3: d < 0.250 m
+  // Z4: 0.250 m <= d < 0.400 m
+  // Z5: 0.400 m <= d <= 1.600 m
+  // Z6: d > 1.600 m
+  // ============================================================================
 
   enum class Zone
   {
@@ -36,9 +41,9 @@ private:
     UNKNOWN
   };
 
-  // ===========================================================================
-  // RESULTADO DE DECISIÓN
-  // ===========================================================================
+  // ==========================================================================
+  // DECISION RESULT
+  // ============================================================================
 
   struct DecisionResult
   {
@@ -49,50 +54,53 @@ private:
     std::string reason;
   };
 
-  // ===========================================================================
-  // CALLBACKS DE ENTRADA
-  // ===========================================================================
+  // ==========================================================================
+  // INPUT CALLBACKS
+  // ============================================================================
 
   void operator_state_callback(
     const colab_supervision_interfaces::msg::OperatorStateAnalysis::SharedPtr msg);
 
-  void interaction_callback(
-    const colab_supervision_interfaces::msg::RobotOperatorInteraction::SharedPtr msg);
+  void supervision_callback(
+    const colab_supervision_interfaces::msg::RobotOperatorSupervision::SharedPtr msg);
 
   void trajectory_callback(
     const moveit_msgs::msg::RobotTrajectory::SharedPtr msg);
 
-  // ===========================================================================
-  // DECISIÓN
-  // ===========================================================================
+  // ==========================================================================
+  // MAIN DECISION LOOP
+  // ============================================================================
 
   void decision_timer_callback();
 
   DecisionResult evaluate_decision();
 
-  // ===========================================================================
-  // VALIDACIÓN DE ENTRADAS YA PROCESADAS
-  // ===========================================================================
+  // ==========================================================================
+  // INPUT VALIDATION / FRESHNESS
+  // ============================================================================
 
   bool is_operator_state_fresh() const;
-  bool is_interaction_fresh() const;
+  bool is_supervision_fresh() const;
   bool is_trajectory_fresh() const;
+  bool processed_information_available() const;
 
-  bool detection_information_available() const;
-
-  // ===========================================================================
-  // CONDICIONES DE OPERACIÓN
-  // ===========================================================================
+  // ==========================================================================
+  // SUPERVISED CONDITIONS
+  // ============================================================================
 
   bool operator_condition_anomalous() const;
   bool collision_is_critical() const;
 
+  // ==========================================================================
+  // ZONE EVALUATION
+  // ============================================================================
+
   Zone determine_zone(double distance) const;
   const char * zone_to_string(Zone zone) const;
 
-  // ===========================================================================
-  // TRAYECTORIA
-  // ===========================================================================
+  // ==========================================================================
+  // TRAJECTORY EVALUATION
+  // ============================================================================
 
   bool trajectory_available() const;
   bool trajectory_target_reachable() const;
@@ -101,19 +109,15 @@ private:
     Zone zone,
     double distance) const;
 
-  // ===========================================================================
-  // DISTANCIA Y VELOCIDAD
-  // ===========================================================================
+  // ==========================================================================
+  // SPEED PROFILE
+  // ============================================================================
 
-  bool get_current_or_last_valid_distance(
-    double & distance) const;
+  int compute_speed_percent(double distance) const;
 
-  int compute_speed_percent(
-    double distance) const;
-
-  // ===========================================================================
-  // CONSTRUCCIÓN DE COMANDOS
-  // ===========================================================================
+  // ==========================================================================
+  // COMMAND BUILDERS
+  // ============================================================================
 
   DecisionResult make_emergency_stop(
     const std::string & reason) const;
@@ -136,47 +140,31 @@ private:
     int speed_percent,
     const std::string & reason) const;
 
-  // ===========================================================================
-  // PUBLICACIÓN
-  // ===========================================================================
+  // ==========================================================================
+  // OUTPUT
+  // ============================================================================
 
-  void publish_command(
-    const DecisionResult & result);
+  void publish_command(const DecisionResult & result);
 
-  // ===========================================================================
-  // TOPICS
-  // ===========================================================================
+  // ==========================================================================
+  // PARAMETERS
+  // ============================================================================
 
   std::string operator_state_topic_;
-  std::string interaction_topic_;
+  std::string supervision_topic_;
   std::string trajectory_topic_;
   std::string command_topic_;
-
-  // ===========================================================================
-  // TEMPORIZACIÓN
-  // ===========================================================================
 
   double decision_rate_hz_;
   double max_input_age_sec_;
   double max_trajectory_age_sec_;
 
-  // ===========================================================================
-  // LÍMITES DE ZONA
-  //
-  // Z3: d <  0.250 m
-  // Z4: 0.250 m <= d < 0.400 m
-  // Z5: 0.400 m <= d <= 1.600 m
-  // Z6: d > 1.600 m
-  // ===========================================================================
-
+  // Zone limits
   double zone3_max_distance_;
   double zone4_max_distance_;
   double zone5_max_distance_;
 
-  // ===========================================================================
-  // PERFIL DE VELOCIDAD
-  // ===========================================================================
-
+  // Speed profile
   double full_speed_distance_;
   double half_speed_distance_;
   double minimum_speed_distance_;
@@ -185,32 +173,26 @@ private:
   double half_speed_percent_;
   double minimum_speed_percent_;
 
-  // ===========================================================================
-  // CONDICIONES ANÓMALAS DEL OPERADOR
-  // ===========================================================================
-
+  // Operator conditions
   bool pause_on_fatigue_high_;
   bool pause_on_attention_other_;
   bool pause_on_attention_unknown_;
 
-  // ===========================================================================
-  // EVALUACIÓN CONSERVADORA DE TRAYECTORIA
-  // ===========================================================================
-
+  // Trajectory safety
   bool conservative_trajectory_check_;
   double trajectory_min_separation_distance_;
 
-  // ===========================================================================
-  // SUBSCRIBERS / PUBLISHER / TIMER
-  // ===========================================================================
+  // ==========================================================================
+  // ROS INTERFACES
+  // ============================================================================
 
   rclcpp::Subscription<
     colab_supervision_interfaces::msg::OperatorStateAnalysis>::SharedPtr
     operator_state_sub_;
 
   rclcpp::Subscription<
-    colab_supervision_interfaces::msg::RobotOperatorInteraction>::SharedPtr
-    interaction_sub_;
+    colab_supervision_interfaces::msg::RobotOperatorSupervision>::SharedPtr
+    supervision_sub_;
 
   rclcpp::Subscription<
     moveit_msgs::msg::RobotTrajectory>::SharedPtr
@@ -222,40 +204,28 @@ private:
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
 
-  // ===========================================================================
-  // ÚLTIMOS ESTADOS PROCESADOS
-  // ===========================================================================
+  // ==========================================================================
+  // LAST PROCESSED STATES
+  // ============================================================================
 
   std::optional<
     colab_supervision_interfaces::msg::OperatorStateAnalysis>
     latest_operator_state_;
 
   std::optional<
-    colab_supervision_interfaces::msg::RobotOperatorInteraction>
-    latest_interaction_;
+    colab_supervision_interfaces::msg::RobotOperatorSupervision>
+    latest_supervision_;
 
-  std::optional<
-    moveit_msgs::msg::RobotTrajectory>
+  std::optional<moveit_msgs::msg::RobotTrajectory>
     latest_trajectory_;
 
   rclcpp::Time operator_state_received_time_;
-  rclcpp::Time interaction_received_time_;
+  rclcpp::Time supervision_received_time_;
   rclcpp::Time trajectory_received_time_;
 
-  // ===========================================================================
-  // ÚLTIMA DISTANCIA VÁLIDA PROCESADA
-  //
-  // No realiza filtrado ni agregación de percepción.
-  // Solamente conserva la última distancia que ya fue calculada por
-  // robot_operator_interaction.
-  // ===========================================================================
-
-  std::optional<double> last_valid_distance_;
-  rclcpp::Time last_valid_distance_time_;
-
-  // ===========================================================================
-  // CONTROL DE PUBLICACIÓN / DIAGNÓSTICO
-  // ===========================================================================
+  // ==========================================================================
+  // DIAGNOSTIC STATE
+  // ============================================================================
 
   std::string last_published_signature_;
   bool initialized_{false};

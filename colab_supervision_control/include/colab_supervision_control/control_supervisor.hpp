@@ -8,11 +8,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/int32.hpp>
-#include <std_msgs/msg/string.hpp>
-
 #include <colab_supervision_interfaces/msg/robot_operator_interaction.hpp>
+#include <colab_supervision_interfaces/msg/robot_operator_supervision.hpp>
 
 namespace colab_supervision_control
 {
@@ -24,9 +21,9 @@ public:
   ~ControlSupervisor() override = default;
 
 private:
-  // ==========================================================================
-  // ESTADO DE UNA MUESTRA
-  // ==========================================================================
+  // ========================================================================
+  // SAMPLE STORED IN THE TEMPORAL HISTORY
+  // ========================================================================
 
   struct SampleState
   {
@@ -40,141 +37,95 @@ private:
     double distance{0.0};
   };
 
-  // ==========================================================================
-  // ACCIONES DE SUPERVISION
-  // ==========================================================================
-
-  enum class Action
-  {
-    WAIT,
-    ALLOW_ACTIONS,
-    LIMIT_SPEED,
-    PAUSE,
-    STOP
-  };
-
-  // ==========================================================================
-  // CALLBACK ROS
-  // ==========================================================================
+  // ========================================================================
+  // ROS CALLBACK
+  // ========================================================================
 
   void interaction_callback(
     const colab_supervision_interfaces::msg::RobotOperatorInteraction::SharedPtr msg);
 
-  // ==========================================================================
-  // EVALUACION PRINCIPAL
-  // ==========================================================================
+  // ========================================================================
+  // PREPROCESSING / SUPERVISION STATE
+  // ========================================================================
 
-  void evaluate(
+  void process_interaction(
     const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg);
 
-  // ==========================================================================
-  // CONDICIONES TEMPORALES
-  // ==========================================================================
+  // ========================================================================
+  // TEMPORAL CONDITIONS
+  // ========================================================================
 
-  bool previous_two_warnings() const;
+  bool any_warning_last_window() const;
 
-  bool any_warning_last_five() const;
-
-  bool five_consecutive_danger() const;
+  bool danger_persistent() const;
 
   void push_history(const SampleState & sample);
 
-  // ==========================================================================
-  // PERFIL DE VELOCIDAD
-  // ==========================================================================
+  // ========================================================================
+  // DISTANCE MEMORY
+  // ========================================================================
 
-  double compute_speed_percent(double distance) const;
+  bool get_distance(
+    const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg,
+    double & distance,
+    bool & distance_from_memory);
 
-  // ==========================================================================
-  // DECISION DE CONTROL
-  // ==========================================================================
+  // ========================================================================
+  // STATE DESCRIPTION
+  // ========================================================================
 
-  Action determine_action(
-    bool operator_detected,
-    bool robot_detected,
-    bool distance_valid,
-    double distance,
-    bool previous_two_warning,
-    bool warning_in_last_five,
-    bool five_danger,
-    std::string & reason) const;
-
-  static const char * action_to_string(Action action);
-
-  // ==========================================================================
-  // PUBLICACION DE RESULTADOS
-  // ==========================================================================
-
-  void publish_decision(
-    Action action,
-    double speed_percent,
-    bool actions_allowed,
-    const std::string & reason,
+  std::string determine_supervision_state(
     const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg,
     bool distance_valid,
-    double distance);
+    bool distance_from_memory) const;
 
-  // ==========================================================================
-  // PARAMETROS
-  // ==========================================================================
+  // ========================================================================
+  // OUTPUT
+  // ========================================================================
+
+  void publish_supervision_state(
+    const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg,
+    bool distance_valid,
+    double distance,
+    bool distance_from_memory,
+    bool warning_in_window,
+    bool danger_is_persistent,
+    const std::string & supervision_state);
+
+  // ========================================================================
+  // PARAMETERS
+  // ========================================================================
 
   std::string interaction_topic_;
-  std::string action_topic_;
-  std::string speed_topic_;
-  std::string actions_allowed_topic_;
-  std::string status_topic_;
+  std::string supervision_topic_;
 
-  // Perfil de velocidad
-  double full_speed_distance_;
-  double half_speed_distance_;
-  double minimum_speed_distance_;
-
-  double full_speed_percent_;
-  double half_speed_percent_;
-  double minimum_speed_percent_;
-
-  // Condiciones de deteccion/control
-  double robot_not_detected_min_distance_;
-  double stop_distance_;
-
-  // Condiciones temporales
+  // Temporal preprocessing
   int warning_history_size_;
-  int danger_pause_frames_;
+  int danger_persistent_frames_;
 
-  // Memoria de la ultima distancia valida
+  // Last valid distance memory
   double distance_memory_timeout_;
 
-  // ==========================================================================
-  // INTERFACES ROS
-  // ==========================================================================
+  // ========================================================================
+  // ROS INTERFACES
+  // ========================================================================
 
   rclcpp::Subscription<
     colab_supervision_interfaces::msg::RobotOperatorInteraction>::SharedPtr
     interaction_sub_;
 
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr action_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::RobotOperatorSupervision>::SharedPtr
+    supervision_pub_;
 
-  // Porcentaje de velocidad publicado como entero: 0..100 %
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr speed_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr actions_allowed_pub_;
-
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
-
-  // ==========================================================================
-  // ESTADO INTERNO
-  // ==========================================================================
+  // ========================================================================
+  // INTERNAL STATE
+  // ========================================================================
 
   std::deque<SampleState> history_;
 
   std::optional<double> last_valid_distance_;
-
   rclcpp::Time last_valid_distance_time_;
-
-  // Ultima velocidad calculada con operador detectado.
-  // Se conserva internamente, pero NO se publica mientras el operador
-  // no esté detectado.
-  double last_speed_percent_{0.0};
 
   bool initialized_{false};
 };

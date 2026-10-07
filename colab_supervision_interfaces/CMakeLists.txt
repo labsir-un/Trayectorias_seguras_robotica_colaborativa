@@ -26,6 +26,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PoseCuaCommand.msg"
   "msg/RobotDetection.msg"
   "msg/RobotOperatorInteraction.msg"
+  "msg/RobotOperatorSupervision.msg"
   #"srv/ComputeRectangleArea.srv"
 
    DEPENDENCIES
