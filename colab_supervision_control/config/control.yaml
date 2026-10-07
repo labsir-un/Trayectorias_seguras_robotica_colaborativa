@@ -15,5 +15,9 @@ control_supervisor:
     # control_decision y no reemplaza el riesgo crítico actual.
     danger_persistent_frames: 5
 
-    # Tiempo máximo para conservar la última distancia válida
-    distance_memory_timeout: 1.0
+    # Retención del último estado completo con distancia válida.
+    #
+    # Cuando RGB/PointCloud no está sincronizado, ControlSupervisor conserva
+    # el último RobotOperatorInteraction completo que llegó con una distancia
+    # válida y lo mantiene activo hasta que llegue una nueva observación válida.
+    retain_last_valid_interaction: true
