@@ -363,6 +363,7 @@ MODULE ComandosSocket
         VAR zonedata t_zone;
         VAR wobjdata t_wobj;
         VAR robtarget t_rob;
+        VAR jointtarget t_joints;
         VAR num anglex;
         VAR num angley;
         VAR num anglez;
@@ -508,7 +509,10 @@ MODULE ComandosSocket
                                                + ValToStr(t_rob.rot.q2) + ","
                                                + ValToStr(t_rob.rot.q3) + ","
                                                + ValToStr(t_rob.rot.q4) + "}}";
-                                               
+                     
+                    CASE "joints":
+                        t_joints := CJointT(\TaskName:=Variable) ;
+                        string_a_enviar := ValToStr(t_joints);
                     CASE " ":
                         Estado_Socket:="Error en el mensaje de GET" + Variable + ", tipo de dato no declarado";
                         RETURN;
