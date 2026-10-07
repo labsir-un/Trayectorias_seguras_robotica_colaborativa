@@ -64,7 +64,7 @@ class RobotOperatorInteractionNode(Node):
         # ============================================================
         self.declare_parameter("processing_rate", 10.0)
         self.declare_parameter("max_sensor_age", 1.0)
-        self.declare_parameter("max_rgb_pointcloud_dt", 0.10)
+        self.declare_parameter("max_rgb_pointcloud_dt", 2.50)
         self.declare_parameter("position_filter_alpha", 0.35)
 
         # ============================================================

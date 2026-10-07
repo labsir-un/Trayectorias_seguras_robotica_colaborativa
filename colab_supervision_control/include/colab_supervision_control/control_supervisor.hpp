@@ -62,13 +62,13 @@ private:
   void push_history(const SampleState & sample);
 
   // ========================================================================
-  // DISTANCE MEMORY
+  // LAST VALID INTERACTION MEMORY
   // ========================================================================
 
-  bool get_distance(
+  bool get_active_interaction(
     const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg,
-    double & distance,
-    bool & distance_from_memory);
+    colab_supervision_interfaces::msg::RobotOperatorInteraction & active_msg,
+    bool & state_from_memory);
 
   // ========================================================================
   // STATE DESCRIPTION
@@ -103,8 +103,9 @@ private:
   int warning_history_size_;
   int danger_persistent_frames_;
 
-  // Last valid distance memory
-  double distance_memory_timeout_;
+  // Retain the last complete valid interaction while current perception
+  // is invalid or RGB/PointCloud synchronization is temporarily lost.
+  bool retain_last_valid_interaction_;
 
   // ========================================================================
   // ROS INTERFACES
@@ -124,8 +125,10 @@ private:
 
   std::deque<SampleState> history_;
 
-  std::optional<double> last_valid_distance_;
-  rclcpp::Time last_valid_distance_time_;
+  // Complete last interaction that arrived with a valid distance.
+  std::optional<
+    colab_supervision_interfaces::msg::RobotOperatorInteraction
+  > last_valid_interaction_;
 
   bool initialized_{false};
 };

@@ -51,9 +51,9 @@ ControlSupervisor::ControlSupervisor()
     5
   );
 
-  distance_memory_timeout_ = declare_parameter<double>(
-    "distance_memory_timeout",
-    1.0
+  retain_last_valid_interaction_ = declare_parameter<bool>(
+    "retain_last_valid_interaction",
+    true
   );
 
   // ==========================================================================
@@ -72,15 +72,9 @@ ControlSupervisor::ControlSupervisor()
     );
   }
 
-  if (distance_memory_timeout_ <= 0.0) {
-    throw std::invalid_argument(
-      "distance_memory_timeout must be greater than zero"
-    );
-  }
-
   // ==========================================================================
   // ROS SUBSCRIPTION
-  // ============================================================================
+  // ===========================================================================
 
   interaction_sub_ =
     create_subscription<
@@ -147,8 +141,13 @@ ControlSupervisor::ControlSupervisor()
 
   RCLCPP_INFO(
     get_logger(),
-    "Distance memory timeout: %.2f s",
-    distance_memory_timeout_
+    "Last valid interaction retention: %s",
+    retain_last_valid_interaction_ ? "ENABLED" : "DISABLED"
+  );
+
+  RCLCPP_INFO(
+    get_logger(),
+    "Retained state remains active until a new valid interaction arrives"
   );
 
   RCLCPP_INFO(
@@ -182,65 +181,105 @@ void ControlSupervisor::process_interaction(
   const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg)
 {
   // ==========================================================================
+  // ACTIVE INTERACTION STATE
+  //
+  // A new synchronized observation is accepted only when interaction_valid is
+  // true and the distance is finite and non-negative.
+  //
+  // When RGB/PointCloud synchronization is temporarily lost, the complete
+  // last valid RobotOperatorInteraction is retained. This prevents mixing
+  // an invalid current observation with an older valid distance.
+  // ==========================================================================
+
+  colab_supervision_interfaces::msg::RobotOperatorInteraction active_msg;
+
+  bool state_from_memory = false;
+
+  const bool current_valid =
+    msg.interaction_valid &&
+    std::isfinite(msg.distance) &&
+    msg.distance >= 0.0;
+
+  get_active_interaction(
+    msg,
+    active_msg,
+    state_from_memory
+  );
+
+  // ==========================================================================
   // CURRENT RISK CLASSIFICATION
   //
   // The collision risk itself has already been calculated by
   // robot_operator_interaction. This node does not recalculate it.
-  // It only derives temporal indicators from the already classified result.
+  // It only derives temporal indicators from the active state.
   // ==========================================================================
 
   const bool warning =
-    msg.collision_risk == "WARNING";
+    active_msg.collision_risk == "WARNING";
 
   const bool danger =
     warning ||
-    msg.collision_risk == "DANGEROUS" ||
-    msg.collision_risk == "CRITICAL" ||
-    msg.collision_imminent;
+    active_msg.collision_risk == "DANGEROUS" ||
+    active_msg.collision_risk == "CRITICAL" ||
+    active_msg.collision_imminent;
 
   // ==========================================================================
-  // DISTANCE PREPROCESSING
+  // DISTANCE
   //
-  // The current valid distance is used directly. If it is temporarily
-  // unavailable, the last valid processed distance can be retained for the
-  // configured timeout. No new perception or geometric calculation is made.
+  // If the active state comes from memory, the stored distance remains valid
+  // but is explicitly marked as being retained.
   // ==========================================================================
 
   double distance = 0.0;
-  bool distance_from_memory = false;
 
   const bool distance_valid =
-    get_distance(
-      msg,
-      distance,
-      distance_from_memory
-    );
+    active_msg.interaction_valid &&
+    std::isfinite(active_msg.distance) &&
+    active_msg.distance >= 0.0;
+
+  if (distance_valid) {
+    distance =
+      static_cast<double>(active_msg.distance);
+  }
+
+  const bool distance_from_memory =
+    state_from_memory && distance_valid;
 
   // ==========================================================================
   // TEMPORAL HISTORY
-  // ============================================================================
+  //
+  // Only NEW valid synchronized observations are inserted.
+  // A retained state is NOT inserted again, otherwise one WARNING/CRITICAL
+  // sample could artificially become five consecutive observations while
+  // synchronization remains unavailable.
+  // ==========================================================================
 
-  SampleState current_sample;
+  if (current_valid) {
 
-  current_sample.operator_detected =
-    msg.operator_detected;
+    SampleState current_sample;
 
-  current_sample.robot_detected =
-    msg.robot_detected;
+    current_sample.operator_detected =
+      active_msg.operator_detected;
 
-  current_sample.warning =
-    warning;
+    current_sample.robot_detected =
+      active_msg.robot_detected;
 
-  current_sample.danger =
-    danger;
+    current_sample.warning =
+      warning;
 
-  current_sample.distance_valid =
-    distance_valid;
+    current_sample.danger =
+      danger;
 
-  current_sample.distance =
-    distance;
+    current_sample.distance_valid =
+      distance_valid;
 
-  push_history(current_sample);
+    current_sample.distance =
+      distance;
+
+    push_history(
+      current_sample
+    );
+  }
 
   const bool warning_in_window =
     any_warning_last_window();
@@ -250,21 +289,21 @@ void ControlSupervisor::process_interaction(
 
   // ==========================================================================
   // DESCRIPTIVE STATE
-  // ============================================================================
+  // ==========================================================================
 
   const std::string supervision_state =
     determine_supervision_state(
-      msg,
+      active_msg,
       distance_valid,
       distance_from_memory
     );
 
   // ==========================================================================
   // PUBLISH PROCESSED STATE
-  // ============================================================================
+  // ==========================================================================
 
   publish_supervision_state(
-    msg,
+    active_msg,
     distance_valid,
     distance,
     distance_from_memory,
@@ -273,65 +312,55 @@ void ControlSupervisor::process_interaction(
     supervision_state
   );
 
-  initialized_ = true;
+  initialized_ =
+    true;
 }
 
 
 // ============================================================================
-// DISTANCE MEMORY
+// LAST VALID INTERACTION MEMORY
 // ============================================================================
 
-bool ControlSupervisor::get_distance(
+
+bool ControlSupervisor::get_active_interaction(
   const colab_supervision_interfaces::msg::RobotOperatorInteraction & msg,
-  double & distance,
-  bool & distance_from_memory)
+  colab_supervision_interfaces::msg::RobotOperatorInteraction & active_msg,
+  bool & state_from_memory)
 {
-  distance_from_memory = false;
+  state_from_memory = false;
 
-  const auto now =
-    get_clock()->now();
-
-  // --------------------------------------------------------------------------
-  // Current valid distance
-  // --------------------------------------------------------------------------
-
-  if (
+  const bool current_valid =
     msg.interaction_valid &&
     std::isfinite(msg.distance) &&
-    msg.distance >= 0.0
-  ) {
-    distance =
-      static_cast<double>(msg.distance);
+    msg.distance >= 0.0;
 
-    last_valid_distance_ =
-      distance;
+  if (current_valid) {
 
-    last_valid_distance_time_ =
-      now;
+    last_valid_interaction_ =
+      msg;
+
+    active_msg =
+      msg;
 
     return true;
   }
 
-  // --------------------------------------------------------------------------
-  // Last valid distance
-  // --------------------------------------------------------------------------
+  if (
+    retain_last_valid_interaction_ &&
+    last_valid_interaction_.has_value()
+  ) {
 
-  if (last_valid_distance_.has_value()) {
+    active_msg =
+      *last_valid_interaction_;
 
-    const double age =
-      (now - last_valid_distance_time_).seconds();
+    state_from_memory =
+      true;
 
-    if (age <= distance_memory_timeout_) {
-
-      distance =
-        *last_valid_distance_;
-
-      distance_from_memory =
-        true;
-
-      return true;
-    }
+    return true;
   }
+
+  active_msg =
+    msg;
 
   return false;
 }
@@ -446,7 +475,7 @@ std::string ControlSupervisor::determine_supervision_state(
   }
 
   if (distance_from_memory) {
-    return "DISTANCE_MEMORY";
+    return "INTERACTION_STATE_MEMORY";
   }
 
   return "VALID";
