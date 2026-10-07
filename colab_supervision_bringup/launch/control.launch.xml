@@ -6,6 +6,12 @@
         description="Topic de datos de interacción operador-robot"
     />
 
+    <arg
+        name="supervision_topic"
+        default="/control/robot_operator_state"
+        description="Estado de interacción preprocesado para control_decision"
+    />
+
     <arg 
         name="perception_operator_topic" 
         default="/state_operator" 
@@ -16,6 +22,12 @@
         name="trajectory_topic" 
         default="/control/trajectory" 
         description="Trayectoria planificada por MoveIt"
+    />
+
+    <arg
+        name="operator_state_topic"
+        default="/operator/state_analisis"
+        description="Estado agregado del operador proveniente de operator_condition"
     />
 
     <arg 
@@ -35,6 +47,11 @@
             value="$(var interaction_topic)"
         />
 
+        <param
+            name="supervision_topic"
+            value="$(var supervision_topic)"
+        />
+
     </node>
 
     <node 
@@ -49,32 +66,32 @@
 
     </node>
 
-    <node 
-        pkg="colab_supervision_control" 
-        exec="control_decision" 
-        name="control_decision" 
+    <node
+        pkg="colab_supervision_control"
+        exec="control_decision"
+        name="control_decision"
         output="screen">
-        
-        <param 
-            name="operator_state_topic" 
-            value="$(var perception_operator_topic)"
+
+        <param
+            name="operator_state_topic"
+            value="$(var operator_state_topic)"
         />
-    
-        <param 
-            name="interaction_topic"
-            value="$(var interaction_topic)"
+
+        <param
+            name="supervision_topic"
+            value="$(var supervision_topic)"
         />
-    
-        <param 
-            name="trajectory_topic" 
+
+        <param
+            name="trajectory_topic"
             value="$(var trajectory_topic)"
         />
 
-        <param 
-            name="command_topic" 
+        <param
+            name="command_topic"
             value="$(var command_topic)"
         />
-            
+
     </node>
 
     <node 

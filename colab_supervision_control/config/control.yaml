@@ -1,22 +1,19 @@
 control_supervisor:
   ros__parameters:
+
+    # Entrada proveniente del nodo de interacción espacial ya procesado
     interaction_topic: "/robot_operator_interaction"
-    action_topic: "/control/action"
-    speed_topic: "/control/speed_percent"
-    actions_allowed_topic: "/control/actions_allowed"
-    status_topic: "/control/status"
 
-    full_speed_distance: 1.900
-    half_speed_distance: 1.600
-    minimum_speed_distance: 0.400
+    # Salida preprocesada para control_decision
+    supervision_topic: "/control/robot_operator_state"
 
-    full_speed_percent: 100.0
-    half_speed_percent: 50.0
-    minimum_speed_percent: 5.0
-
-    robot_not_detected_min_distance: 1.650
-    stop_distance: 1.600
-
+    # Ventana temporal para detectar persistencia de WARNING
     warning_history_size: 5
-    danger_pause_frames: 5
+
+    # Número de muestras consecutivas DANGEROUS/CRITICAL para marcar
+    # una condición persistente. Este indicador es informativo para
+    # control_decision y no reemplaza el riesgo crítico actual.
+    danger_persistent_frames: 5
+
+    # Tiempo máximo para conservar la última distancia válida
     distance_memory_timeout: 1.0

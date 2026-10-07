@@ -2,18 +2,15 @@ control_decision:
   ros__parameters:
 
     # ==========================================================================
-    # INPUT TOPICS
+    # PREPROCESSED INPUTS
     # ==========================================================================
 
     operator_state_topic: "/operator/state_analisis"
-    interaction_topic: "/robot_operator_interaction"
-
-    # MoveIt trajectory topic. This is the planned trajectory that will later
-    # be evaluated before issuing the control command.
+    supervision_topic: "/control/robot_operator_state"
     trajectory_topic: "/control/trajectory"
 
     # ==========================================================================
-    # OUTPUT
+    # COMMAND OUTPUT
     # ==========================================================================
 
     command_topic: "/control/command"
@@ -23,25 +20,16 @@ control_decision:
     # ==========================================================================
 
     decision_rate_hz: 10.0
-
-    # Maximum allowed age of OperatorStateAnalysis and
-    # RobotOperatorInteraction messages.
     max_input_age_sec: 0.50
-
-    # Maximum allowed age of the last MoveIt trajectory.
     max_trajectory_age_sec: 2.0
 
     # ==========================================================================
-    # ZONES
+    # OPERATING ZONES
     #
-    # The current RobotOperatorInteraction message contains distance but not
-    # an explicit zone. Therefore the zone boundaries are configurable.
-    #
-    # Default:
-    #   Z3  : d <  0.250m
-    #   Z4  : 0.250m <= d < 0.400m
-    #   Z5  : 0.400m <= d <= 1.600m
-    #   Z6  : d > 1.600 m
+    # Z3  : d <  0.250 m
+    # Z4  : 0.250 m <= d < 0.400 m
+    # Z5  : 0.400 m <= d <= 1.600 m
+    # Z6  : d > 1.600 m
     # ==========================================================================
 
     zone3_max_distance: 0.250
@@ -50,11 +38,6 @@ control_decision:
 
     # ==========================================================================
     # SPEED PROFILE
-    #
-    # >= 1.900 m  -> 100 %
-    # 1.900-1.600 -> exponential 100 -> 50 %
-    # 1.600-0.400 -> exponential 50 -> 5 %
-    # < 0.400 m   -> 5 %
     # ==========================================================================
 
     full_speed_distance: 1.900
@@ -66,28 +49,16 @@ control_decision:
     minimum_speed_percent: 5.0
 
     # ==========================================================================
-    # OPERATOR CONDITIONS
+    # OPERATOR ANOMALY CONDITIONS
     # ==========================================================================
 
-    # Fatigue HIGH -> PAUSE
     pause_on_fatigue_high: true
-
-    # Attention OTHER -> PAUSE
     pause_on_attention_other: true
-
-    # Attention UNKNOWN -> PAUSE
     pause_on_attention_unknown: true
 
     # ==========================================================================
     # TRAJECTORY SAFETY
-    #
-    # The current three inputs do not contain a trajectory-wide Cartesian
-    # separation result. The node therefore uses a conservative current-state
-    # test until a dedicated trajectory evaluator is integrated.
-    #
-    # false -> Z4/Z5 is considered unable to guarantee separation.
     # ==========================================================================
 
     conservative_trajectory_check: true
-
     trajectory_min_separation_distance: 0.400
