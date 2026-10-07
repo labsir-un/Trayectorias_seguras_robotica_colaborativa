@@ -34,6 +34,14 @@
         description="Topic OperatorPerception de entrada"
     />
 
+    <!-- ============================================================ -->
+    <!-- Moviet                                             -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/abb_irb_140.launch.xml"
+    />
+
 
     <!-- ============================================================ -->
     <!-- REALSENSE D435i                                             -->
