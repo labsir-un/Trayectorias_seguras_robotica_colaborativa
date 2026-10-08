@@ -57,21 +57,38 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
     <summary>Tabla de contenido</summary>
 
 <!-- TOC -->
+- [Prerrequisitos](#prerrequisitos)
 - [Resumen de archivos](#resumen-de-archivos)
 - [Resumen carpeta robotstudio](#resumen-carpeta-robotstudio)
 - [Resumen de paquetes](#resumen-de-paquetes)
 - [Configuración para WLS](#configuración-para-wls)
   - [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb)
-  - [Verificar IP de conexión para el socket](#verificar-ip-de-conexión-para-el-socket)
   - [Instalación de programas y dependencias](#instalación-de-programas-y-dependencias)
   - [Configuración de Work Space](#configuración-de-work-space)
+  - [Verificar IP de conexión para el socket](#verificar-ip-de-conexión-para-el-socket)
 - [Verificación de funcionamiento de cámaras](#verificación-de-funcionamiento-de-cámaras)
   - [Camara RGB](#camara-rgb)
-  - [Conectar aplicación SDK y socket de ROS2](#conectar-aplicación-sdk-y-socket-de-ros2)
+  - [Camara Realsense](#camara-realsense)
+    - [Detección del robot](#detección-del-robot)
+    - [Detección del operador](#detección-del-operador)
+    - [Detección completa en la celda](#detección-completa-en-la-celda)
+- [Verificación de conexión al IRC5](#verificación-de-conexión-al-irc5)
+  - [Conectar aplicación PC SDK y socket de ROS2](#conectar-aplicación-pc-sdk-y-socket-de-ros2)
+- [Despliegue de escena completa](#despliegue-de-escena-completa)
+- [Ejecución de operaciones](#ejecución-de-operaciones)
+  - [Iniciar operación](#iniciar-operación)
+  - [Revisión y configuración](#revisión-y-configuración)
+  - [Proceso de Decoración](#proceso-de-decoración)
 - [Agradecimientos](#agradecimientos)
 </details>
 
 ---
+
+## Prerrequisitos
+
+- Windows 11
+- WLS 2 con Ubuntu 24.04
+- Realsense viewer
 
 ## Resumen de archivos
 
@@ -87,13 +104,15 @@ Implementación de determinación de trayectorias seguras en entrono de robótic
 
 ## Resumen de paquetes
 
+- `colab_supervision_abb_brige`: Paquete para nodos de conexión al socket de comunicaciones con programa de PC SDK.
 - `colab_supervision_bringup`: Paquete para archivos launch e inicialización de procesos.
 - `colab_supervision_commader`: Paquete para nodos de control por medio de la API de C++ de moveit.
-- `colab_supervision_moveit_config`: Paquete de configuración de moveit2.
+- `colab_supervision_control`: Paquete para la coordinación de comportamientos y toma de decisiones reactivas basadas en eventos detectados por cámara.
 - `colab_supervision_description`: Paquete de configuración de URDF del ABB IRB140.
 - `colab_supervision_interfaces`: Paquete para interfaces de comunicación entre nodos.
+- `colab_supervision_moveit_config`: Paquete de configuración de moveit2.
 - `realsense-ros`: ROS Wrapper para camaras RealSense.
-- `ros_industrial_abb_driver`: Paquete de ROS-industrial con modificaciones de [abb_ros2](https://github.com/PickNikRobotics/abb_ros2/tree/rolling) para comunicaciones con el controlador IRC5.
+
 
 ## Configuración para WLS
 
@@ -116,7 +135,7 @@ usbipd attach --wsl --busid <$BUSID>
 </div>
 
 >[!WARNING]
->Siempre enlace la camara RGB primero para que su puerto por defecto sea `/dev/video0` y notenga que ingresarse en el launch
+>Siempre enlace la camara RGB primero para que su puerto por defecto sea `/dev/video0` y no tenga que ingresarse en el launch
 
 >[!IMPORTANT] 
 >Cada vez que se reinicie el WLS o se use el recurso compartido se debe verificar que este unido al WLS para su funcionamiento.
@@ -137,20 +156,6 @@ v4l2-ctl --device=/dev/video0 --list-formats-ext && echo "===============" && v4
 </div>
 
 
-### Verificar IP de conexión para el socket
-
-```sh
-#Muestra la IP de conexión con WIN11
-ip route show default
-```
-
-<div align="center">
-    <img src="https://imgur.com/pVM85I8.png" alt="Ej_IP_router">
-</div>
-
->[!WARNING]
->Si la IP no corresponde con la asignada para WLS el programa de PC SDK no respondera dado que no se accede a la red de acceso del programa el valor por defecto que se tiene es `172.25.64.1`
-
 ### Instalación de programas y dependencias
 
 Ejecute en la terminal
@@ -169,6 +174,9 @@ Ejecute en la terminal
 ```
 Con esto se configura todo el entorno de trabajo, el tema de kitty, los atajaos de trabajo como:
 
+<details>
+    <summary>Tabla de atajos de trabajo</summary>
+
 | Tipo | Comando / Función / Variable | Descripción / Utilidad |
 | :--- | :--- | :--- |
 | **Entorno ROS 2** | `source /opt/ros/$ROS_DISTRO/setup.bash` | Carga las variables de entorno y herramientas base de ROS 2. |
@@ -182,6 +190,21 @@ Con esto se configura todo el entorno de trabajo, el tema de kitty, los atajaos 
 | **Alias** | `alias TrackingOff='...'` | Desactiva el entorno virtual (`deactivate`) y muestra mensaje de confirmación. |
 | **Variable de entorno** | `export PYTHONPATH=$PYTHONPATH:~/DetTracking_ws/venv/lib/python3.12/site-packages` | Expone paquetes del venv (`mediapipe`, `ultralytics`) para que los nodos de ROS 2 los encuentren. |
 
+</details>
+
+### Verificar IP de conexión para el socket
+
+```sh
+#Muestra la IP de conexión con WIN11
+ip route show default
+```
+
+<div align="center">
+    <img src="https://imgur.com/pVM85I8.png" alt="Ej_IP_router">
+</div>
+
+>[!WARNING]
+>Si la IP no corresponde con la asignada para WLS el programa de PC SDK no respondera dado que no se accede a la red de acceso del programa el valor por defecto que se tiene es `172.25.64.1`
 
 ## Verificación de funcionamiento de cámaras
 
@@ -202,13 +225,104 @@ Se abrira una ventana donde podra visualiar todos los eleementos de estado del o
     <img src="https://imgur.com/JgeioFb.png" alt="Ej_funcionamiento_camara_rgb">
 </div>
 
-### Conectar aplicación SDK y socket de ROS2
+### Camara Realsense
 
-Para conectar el socket ejecuite el siguiente comando. Importante que el `server_ip` coincida con la red asignada al WLS por Windows11.
+Una vez la cámara Realsense D435i este correctamente enlazada con WLS se puede probar el nodo de detección del robot y del operador.
+
+#### Detección del robot
+
+Para visualiar si el robot esta siendo detectado primero posicionelo en una posición visible de la cámara y ejecute el test de detección
+
+```sh
+ros2 launch colab_supervision_bringup realsense_robot_xyz_test.launch.xml 
+```
+
+#### Detección del operador
+
+Para visualiar si el operador esta siendo detectado primero posicionese en una posición visible de la cámara y ejecute el test de detección
+
+```sh
+ros2 launch colab_supervision_bringup realsense_operator_xyz_test.launch.xml 
+```
+
+#### Detección completa en la celda
+
+Para revisar la detección completa ejecute en dos terminales uno el nodo de interección y en otro el nodo de la camara realsense. Con esto se desplegara la ventana de visualiación completa de la interacción.
+
+```sh
+ros2 launch colab_supervision_bringup realsense_D435i.launch.xml 
+```
+
+```sh
+ros2 launch colab_supervision_bringup robot_operator_interaction.launch.xml visualizar:=true
+```
+
+<div align="center">
+    <img src="https://imgur.com/zre5tBx.png" alt="Ej_interacción_humano_robot">
+</div>
+
+
+## Verificación de conexión al IRC5
+
+### Conectar aplicación PC SDK y socket de ROS2
+
+Inicie la aplicación `AbbBrigeSocket`. Para conectar el socket ejecuite el siguiente comando. Importante que el `server_ip` coincida con la red asignada al WLS por Windows 11.
 
 ```sh
 ros2 launch colab_supervision_bringup socket_pcsdk.launch.xml server_ip:="172.22.112.1"
 ```
+
+## Despliegue de escena completa
+
+
+## Ejecución de operaciones
+
+Para comenzar con la operación verifique que la aplicación `AbbBrigeSocket` ya se encuentra activa y enlazada con el controlador del robot correspondiente. Tambien verifique que el modo de operación del robot este en `automático`. Con las verificaciones previas rezaliadas de en el botón de play en el `flexpendant` e ingrese en la HMI `ColabControl` .
+
+### Iniciar operación
+
+Una vez haya ingresado puede darle en conectar para iniciar la conexión con `AbbBrigeSocket` y entrar en modo de espera de la conexión del `socket`. **Una vez se confirme la conexión con el `socket` el robot se movera a la posición de `transición`**.
+
+>[!warning]
+>Puede ingresar a la pantalla de revisión y configuración dando en el botón `Comenzar` aca podra mover el robot pero la parte de supervisión aun no estara sincroniada ni habilitada, el modo de proceso no esta disponible.
+
+<div align="center">
+    <img src="https://imgur.com/ZZdI5G7.png" alt="HMI_inicio">
+</div>
+
+
+
+### Revisión y configuración
+
+En esta pantalla podra ver el estado del programa si se esta eejcutando y el modo de operación del robot. Se podra mover a las cuatro configuraciones principales del robot.
+
+- ***Home:*** Configuración con todos los valores articulares en cero.
+- ***Transición:*** Configuración de tránsito que tienen todas las rutinas de movimiento de proceso y entre configuraciones principales.
+- ***Mantenimiento:*** Configuración para realiar modificaciones o ajustes al efector final.
+- ***Espera:*** Configuración donde el robor despeja el espacio del proceso para realiar cambios sin su interferencia.
+
+Tambien se tiene acceso a la rutina `RevisarWO` para verificación de ubicación de la pieza o elemento a intervenir con el proceso junto a puntos especificos de contacto con esta y botón `Confirmado` para verificar cada uno de los puntos con paradas para ajustar posicionamiento. 
+
+<div align="center">
+    <img src="https://imgur.com/CjZ4IVC.png" alt="HMI_revisión_configuración">
+</div>
+
+### Proceso de Decoración
+
+En esta pantalla el operador puede escoger el diseño a ejecutar para decoración con indicadores de cual es la selección realizada y un testigo de cual es el que se encuentra en proceso. Adicionalmente se tiene un testigo de `Reinicio` que indica cuando el sistema necesita un rearme por haberse ejecutado una parada desde la HMI o desde el sistema de supervisión.
+
+Además de los comandos para el operador.
+
+- ***Comenzar:*** Valida el diseño seleccionado y da inicio al ciclo de trabajo del robot.
+- ***Pausa/Continuar:*** permite suspender temporalmente el movimiento del robot durante el ciclo sin abortar la tarea, facilitando su reanudación inmediata.
+- ***Parada:*** Detiene de inmediato la tarea de decoración e inhabilita el inicio hasta la confirmación y rearme manual del sistema.
+- ***Reiniciar:*** Aborta la ejecución actual y restablece el sistema para reiniciar el proceso desde las condiciones iniciales.
+
+<div align="center">
+    <img src="https://imgur.com/XzQvGXa.png" alt="HMI_proceso">
+</div>
+
+
 
 ## Agradecimientos
 
