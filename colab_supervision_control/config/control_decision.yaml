@@ -1,44 +1,40 @@
 control_decision:
   ros__parameters:
 
-    # ==========================================================================
-    # PREPROCESSED INPUTS
-    # ==========================================================================
+    # ========================================================================
+    # INPUTS
+    # ========================================================================
 
     operator_state_topic: "/operator/state_analisis"
     supervision_topic: "/control/robot_operator_state"
     trajectory_topic: "/control/trajectory"
-
-    # ==========================================================================
-    # COMMAND OUTPUT
-    # ==========================================================================
-
     command_topic: "/control/command"
 
-    # ==========================================================================
+    # ========================================================================
     # DECISION LOOP
-    # ==========================================================================
+    # ========================================================================
 
     decision_rate_hz: 10.0
     max_input_age_sec: 0.50
     max_trajectory_age_sec: 2.0
+    repeat_command_period_sec: 0.50
 
-    # ==========================================================================
+    # ========================================================================
     # OPERATING ZONES
     #
     # Z3  : d <  0.250 m
     # Z4  : 0.250 m <= d < 0.400 m
     # Z5  : 0.400 m <= d <= 1.600 m
-    # Z6  : d > 1.600 m
-    # ==========================================================================
+    # Z6  : d >  1.600 m
+    # ========================================================================
 
     zone3_max_distance: 0.250
     zone4_max_distance: 0.400
     zone5_max_distance: 1.600
 
-    # ==========================================================================
+    # ========================================================================
     # SPEED PROFILE
-    # ==========================================================================
+    # ========================================================================
 
     full_speed_distance: 1.900
     half_speed_distance: 1.600
@@ -48,17 +44,62 @@ control_decision:
     half_speed_percent: 50.0
     minimum_speed_percent: 5.0
 
-    # ==========================================================================
-    # OPERATOR ANOMALY CONDITIONS
-    # ==========================================================================
+    # ========================================================================
+    # OPERATOR CONDITIONS
+    # ========================================================================
 
     pause_on_fatigue_high: true
     pause_on_attention_other: true
     pause_on_attention_unknown: true
 
-    # ==========================================================================
+    # ========================================================================
     # TRAJECTORY SAFETY
-    # ==========================================================================
+    # ========================================================================
 
     conservative_trajectory_check: true
     trajectory_min_separation_distance: 0.400
+
+    # ========================================================================
+    # COMMAND GRAMMAR
+    # ========================================================================
+    #
+    # The node uses only the command structures understood by the parser:
+    #
+    # Variable / SET / Sock_Parada   / TRUE
+    # Variable / SET / Sock_Pausa    / TRUE
+    # Variable / SET / Sock_Bloquear / TRUE
+    # Variable / SET / Sock_Reinicio / TRUE
+    # Velocidad / Porcentaje / VelMax / <0-100>
+    # Velocidad / Max        / VelMax / <0-100>
+    # Distancia / GetPostura / Prototipo / TCPEuler
+    # Distancia / GetPostura / Prototipo / TCPTCPCua
+    # Distancia / CambiarTrayectoria / ActualizarPuntos / Interes
+    # Distancia / CambiarTrayectoria / SetOffsets / [x,y,z]
+    # Distancia / CambiarTrayectoria / ActualizarPuntos / GuardarPSalida
+    # Distancia / CambiarTrayectoria / MoveTemp / MoveJoint
+    # Distancia / CambiarTrayectoria / MoveTemp / MoveLinear
+    # Distancia / Postura_segura / robtargetJ / Nombre_punto
+    # Distancia / Postura_segura / robtargetL / Nombre_punto
+    # Distancia / Postura_segura / JoinConf / [[articulaciones],[9E9,...]]
+    #
+    # ========================================================================
+
+    send_trajectory_interest_command: true
+    send_restart_before_motion: true
+    send_speed_command_before_motion: true
+
+    # Blocks new actions only if enabled by the application logic.
+    block_during_distance_correction: false
+
+    # User can choose MoveJoint or MoveLinear for the temporary offset move.
+    distance_move_type: "MoveLinear"
+
+    # IMPORTANT:
+    # Leave empty until the final [x,y,z] values are defined.
+    # While empty, PRIORITY 4 fails safe to Sock_Pausa and does NOT send
+    # SetOffsets with a fabricated zero offset.
+    set_offsets_value: ""
+
+    # Reserved for a future safe-posture action.
+    safe_posture_joint_point: ""
+    safe_posture_linear_point: ""

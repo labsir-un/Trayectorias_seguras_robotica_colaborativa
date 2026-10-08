@@ -4,6 +4,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <cstdint>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -23,7 +25,7 @@ public:
   ~ControlDecision() override = default;
 
 private:
-  // ==========================================================================
+  // ============================================================================
   // OPERATING ZONES
   //
   // Z3: d < 0.250 m
@@ -41,8 +43,23 @@ private:
     UNKNOWN
   };
 
-  // ==========================================================================
-  // DECISION RESULT
+  // ============================================================================
+  // DECISION ACTIONS
+  // ============================================================================
+
+  enum class Action
+  {
+    EMERGENCY_STOP,
+    SAFE_STOP,
+    PAUSE,
+    INCREASE_DISTANCE,
+    LIMIT_SPEED,
+    NORMAL_OPERATION,
+    UNKNOWN
+  };
+
+  // ============================================================================
+  // COMMAND REPRESENTATION
   // ============================================================================
 
   struct DecisionResult
@@ -54,7 +71,21 @@ private:
     std::string reason;
   };
 
-  // ==========================================================================
+  struct CommandStep
+  {
+    DecisionResult command;
+    bool repeat{false};
+  };
+
+  struct DecisionPlan
+  {
+    Action action{Action::UNKNOWN};
+    std::string signature;
+    std::vector<CommandStep> steps;
+    std::string reason;
+  };
+
+  // ============================================================================
   // INPUT CALLBACKS
   // ============================================================================
 
@@ -67,15 +98,15 @@ private:
   void trajectory_callback(
     const moveit_msgs::msg::RobotTrajectory::SharedPtr msg);
 
-  // ==========================================================================
+  // ============================================================================
   // MAIN DECISION LOOP
   // ============================================================================
 
   void decision_timer_callback();
 
-  DecisionResult evaluate_decision();
+  DecisionPlan evaluate_decision();
 
-  // ==========================================================================
+  // ============================================================================
   // INPUT VALIDATION / FRESHNESS
   // ============================================================================
 
@@ -84,69 +115,138 @@ private:
   bool is_trajectory_fresh() const;
   bool processed_information_available() const;
 
-  // ==========================================================================
+  // ============================================================================
   // SUPERVISED CONDITIONS
   // ============================================================================
 
   bool operator_condition_anomalous() const;
   bool collision_is_critical() const;
 
-  // ==========================================================================
+  // ============================================================================
   // ZONE EVALUATION
   // ============================================================================
 
   Zone determine_zone(double distance) const;
   const char * zone_to_string(Zone zone) const;
+  const char * action_to_string(Action action) const;
 
-  // ==========================================================================
+  // ============================================================================
   // TRAJECTORY EVALUATION
   // ============================================================================
 
   bool trajectory_available() const;
   bool trajectory_target_reachable() const;
+  bool trajectory_points_valid() const;
 
   bool trajectory_keeps_separation(
     Zone zone,
     double distance) const;
 
-  // ==========================================================================
+  // ============================================================================
   // SPEED PROFILE
   // ============================================================================
 
   int compute_speed_percent(double distance) const;
 
-  // ==========================================================================
-  // COMMAND BUILDERS
+  // ============================================================================
+  // COMMAND BUILDERS - EXACT COMMAND GRAMMAR
   // ============================================================================
 
-  DecisionResult make_emergency_stop(
+  DecisionResult make_variable_set(
+    const std::string & variable,
+    const std::string & value,
     const std::string & reason) const;
 
-  DecisionResult make_safe_stop(
-    const std::string & reason) const;
-
-  DecisionResult make_pause(
-    const std::string & reason) const;
-
-  DecisionResult make_increase_distance(
+  DecisionResult make_speed_percent(
     int speed_percent,
     const std::string & reason) const;
 
-  DecisionResult make_limit_speed(
+  DecisionResult make_speed_max(
     int speed_percent,
     const std::string & reason) const;
 
-  DecisionResult make_normal_operation(
-    int speed_percent,
+  DecisionResult make_get_tcp_euler(
     const std::string & reason) const;
 
-  // ==========================================================================
-  // OUTPUT
+  DecisionResult make_get_tcp_quaternion(
+    const std::string & reason) const;
+
+  DecisionResult make_update_interest(
+    const std::string & reason) const;
+
+  DecisionResult make_set_offsets(
+    const std::string & reason) const;
+
+  DecisionResult make_save_exit_point(
+    const std::string & reason) const;
+
+  DecisionResult make_move_temp(
+    const std::string & move_type,
+    const std::string & reason) const;
+
+  DecisionResult make_safe_posture_joint(
+    const std::string & point_name,
+    const std::string & reason) const;
+
+  DecisionResult make_safe_posture_linear(
+    const std::string & point_name,
+    const std::string & reason) const;
+
+  DecisionResult make_joint_configuration(
+    const std::vector<double> & joints,
+    const std::string & reason) const;
+
+  // ============================================================================
+  // DECISION PLAN BUILDERS
   // ============================================================================
 
-  void publish_command(const DecisionResult & result);
+  DecisionPlan make_emergency_stop_plan(
+    const std::string & reason) const;
 
-  // ==========================================================================
+  DecisionPlan make_safe_stop_plan(
+    const std::string & reason) const;
+
+  DecisionPlan make_pause_plan(
+    const std::string & reason) const;
+
+  DecisionPlan make_increase_distance_plan(
+    int speed_percent,
+    const std::string & reason) const;
+
+  DecisionPlan make_limit_speed_plan(
+    int speed_percent,
+    const std::string & reason) const;
+
+  DecisionPlan make_normal_operation_plan(
+    int speed_percent,
+    const std::string & reason) const;
+
+  DecisionPlan make_fail_safe_plan(
+    const std::string & reason) const;
+
+  // ============================================================================
+  // PLAN EXECUTION
+  // ============================================================================
+
+  void apply_plan(const DecisionPlan & plan);
+  void publish_current_step();
+  bool plan_is_active() const;
+  bool should_repeat_current_step() const;
+  bool same_plan(const DecisionPlan & plan) const;
+
+  // ============================================================================
+  // COMMAND HELPERS
+  // ============================================================================
+
+  static std::string format_array3(
+    double x,
+    double y,
+    double z);
+
+  static std::string format_joint_configuration(
+    const std::vector<double> & joints);
+
+  // ============================================================================
   // PARAMETERS
   // ============================================================================
 
@@ -159,7 +259,7 @@ private:
   double max_input_age_sec_;
   double max_trajectory_age_sec_;
 
-  // Zone limits
+  // Zones
   double zone3_max_distance_;
   double zone4_max_distance_;
   double zone5_max_distance_;
@@ -182,7 +282,22 @@ private:
   bool conservative_trajectory_check_;
   double trajectory_min_separation_distance_;
 
-  // ==========================================================================
+  // Command grammar / trajectory execution
+  bool send_trajectory_interest_command_;
+  bool send_restart_before_motion_;
+  bool send_speed_command_before_motion_;
+  bool block_during_distance_correction_;
+  std::string distance_move_type_;
+  std::string set_offsets_value_;
+
+  // Optional safe posture commands reserved for later integration
+  std::string safe_posture_joint_point_;
+  std::string safe_posture_linear_point_;
+
+  // Timing for one-shot / repeated commands
+  double repeat_command_period_sec_;
+
+  // ============================================================================
   // ROS INTERFACES
   // ============================================================================
 
@@ -204,7 +319,7 @@ private:
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
 
-  // ==========================================================================
+  // ============================================================================
   // LAST PROCESSED STATES
   // ============================================================================
 
@@ -223,12 +338,18 @@ private:
   rclcpp::Time supervision_received_time_;
   rclcpp::Time trajectory_received_time_;
 
-  // ==========================================================================
-  // DIAGNOSTIC STATE
+  // ============================================================================
+  // ACTIVE PLAN STATE
   // ============================================================================
 
-  std::string last_published_signature_;
-  bool initialized_{false};
+  DecisionPlan active_plan_;
+  std::size_t active_step_index_{0};
+  rclcpp::Time current_step_last_publication_time_;
+  bool plan_initialized_{false};
+
+  // Used to distinguish each newly published MoveIt plan.
+  std::string last_trajectory_signature_;
+  std::uint64_t trajectory_generation_{0};
 };
 
 }  // namespace colab_supervision_control
