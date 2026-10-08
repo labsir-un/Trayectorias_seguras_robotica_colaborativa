@@ -19,7 +19,7 @@ public:
         // ============================================================
 
         input_topic_ = this->declare_parameter<std::string>(
-            "input_topic", "/control_command");
+            "input_topic", "/control/command_validated");
 
         output_topic_ = this->declare_parameter<std::string>(
             "output_topic", "/tcp_socket/send");

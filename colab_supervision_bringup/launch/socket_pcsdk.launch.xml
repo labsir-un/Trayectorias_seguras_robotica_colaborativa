@@ -23,7 +23,7 @@
 
     <arg
         name="control_command_topic"
-        default="/control_command"
+        default="/control/command_validated"
         description="Topic de comandos de control"
     />
 

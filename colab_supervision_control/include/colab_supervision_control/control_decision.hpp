@@ -1,10 +1,10 @@
 #ifndef COLAB_SUPERVISION_CONTROL__CONTROL_DECISION_HPP_
 #define COLAB_SUPERVISION_CONTROL__CONTROL_DECISION_HPP_
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <cstdint>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -25,14 +25,14 @@ public:
   ~ControlDecision() override = default;
 
 private:
-  // ============================================================================
+  // ==========================================================================
   // OPERATING ZONES
   //
   // Z3: d < 0.250 m
   // Z4: 0.250 m <= d < 0.400 m
   // Z5: 0.400 m <= d <= 1.600 m
   // Z6: d > 1.600 m
-  // ============================================================================
+  // ===========================================================================
 
   enum class Zone
   {
@@ -43,9 +43,9 @@ private:
     UNKNOWN
   };
 
-  // ============================================================================
+  // ==========================================================================
   // DECISION ACTIONS
-  // ============================================================================
+  // ===========================================================================
 
   enum class Action
   {
@@ -58,9 +58,9 @@ private:
     UNKNOWN
   };
 
-  // ============================================================================
+  // ==========================================================================
   // COMMAND REPRESENTATION
-  // ============================================================================
+  // ===========================================================================
 
   struct DecisionResult
   {
@@ -74,7 +74,6 @@ private:
   struct CommandStep
   {
     DecisionResult command;
-    bool repeat{false};
   };
 
   struct DecisionPlan
@@ -85,9 +84,9 @@ private:
     std::string reason;
   };
 
-  // ============================================================================
+  // ==========================================================================
   // INPUT CALLBACKS
-  // ============================================================================
+  // ===========================================================================
 
   void operator_state_callback(
     const colab_supervision_interfaces::msg::OperatorStateAnalysis::SharedPtr msg);
@@ -98,41 +97,41 @@ private:
   void trajectory_callback(
     const moveit_msgs::msg::RobotTrajectory::SharedPtr msg);
 
-  // ============================================================================
+  // ==========================================================================
   // MAIN DECISION LOOP
-  // ============================================================================
+  // ===========================================================================
 
   void decision_timer_callback();
-
   DecisionPlan evaluate_decision();
 
-  // ============================================================================
+  // ==========================================================================
   // INPUT VALIDATION / FRESHNESS
-  // ============================================================================
+  // ==========================================================================
 
   bool is_operator_state_fresh() const;
   bool is_supervision_fresh() const;
   bool is_trajectory_fresh() const;
   bool processed_information_available() const;
 
-  // ============================================================================
+  // ==========================================================================
   // SUPERVISED CONDITIONS
-  // ============================================================================
+  // ==========================================================================
 
   bool operator_condition_anomalous() const;
+  bool operator_is_available() const;
   bool collision_is_critical() const;
 
-  // ============================================================================
+  // ==========================================================================
   // ZONE EVALUATION
-  // ============================================================================
+  // ==========================================================================
 
   Zone determine_zone(double distance) const;
   const char * zone_to_string(Zone zone) const;
   const char * action_to_string(Action action) const;
 
-  // ============================================================================
+  // ==========================================================================
   // TRAJECTORY EVALUATION
-  // ============================================================================
+  // ==========================================================================
 
   bool trajectory_available() const;
   bool trajectory_target_reachable() const;
@@ -142,15 +141,19 @@ private:
     Zone zone,
     double distance) const;
 
-  // ============================================================================
+  // ==========================================================================
   // SPEED PROFILE
-  // ============================================================================
+  // ==========================================================================
 
   int compute_speed_percent(double distance) const;
+  int compute_effective_speed_percent(double distance) const;
+  double fatigue_speed_factor() const;
+  bool speed_change_requires_command(int desired_speed_percent) const;
+  std::string speed_signature(int desired_speed_percent) const;
 
-  // ============================================================================
+  // ==========================================================================
   // COMMAND BUILDERS - EXACT COMMAND GRAMMAR
-  // ============================================================================
+  // ==========================================================================
 
   DecisionResult make_variable_set(
     const std::string & variable,
@@ -196,9 +199,9 @@ private:
     const std::vector<double> & joints,
     const std::string & reason) const;
 
-  // ============================================================================
+  // ==========================================================================
   // DECISION PLAN BUILDERS
-  // ============================================================================
+  // ===========================================================================
 
   DecisionPlan make_emergency_stop_plan(
     const std::string & reason) const;
@@ -224,19 +227,18 @@ private:
   DecisionPlan make_fail_safe_plan(
     const std::string & reason) const;
 
-  // ============================================================================
-  // PLAN EXECUTION
-  // ============================================================================
+  // ==========================================================================
+  // PLAN EXECUTION / ONE-SHOT COMMAND STATE
+  // ===========================================================================
 
   void apply_plan(const DecisionPlan & plan);
   void publish_current_step();
   bool plan_is_active() const;
-  bool should_repeat_current_step() const;
   bool same_plan(const DecisionPlan & plan) const;
 
-  // ============================================================================
+  // ==========================================================================
   // COMMAND HELPERS
-  // ============================================================================
+  // ===========================================================================
 
   static std::string format_array3(
     double x,
@@ -246,9 +248,9 @@ private:
   static std::string format_joint_configuration(
     const std::vector<double> & joints);
 
-  // ============================================================================
+  // ==========================================================================
   // PARAMETERS
-  // ============================================================================
+  // ===========================================================================
 
   std::string operator_state_topic_;
   std::string supervision_topic_;
@@ -272,6 +274,8 @@ private:
   double full_speed_percent_;
   double half_speed_percent_;
   double minimum_speed_percent_;
+  double speed_change_threshold_percent_;
+  double fatigue_medium_speed_factor_;
 
   // Operator conditions
   bool pause_on_fatigue_high_;
@@ -294,12 +298,9 @@ private:
   std::string safe_posture_joint_point_;
   std::string safe_posture_linear_point_;
 
-  // Timing for one-shot / repeated commands
-  double repeat_command_period_sec_;
-
-  // ============================================================================
+  // ==========================================================================
   // ROS INTERFACES
-  // ============================================================================
+  // ===========================================================================
 
   rclcpp::Subscription<
     colab_supervision_interfaces::msg::OperatorStateAnalysis>::SharedPtr
@@ -319,9 +320,9 @@ private:
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
 
-  // ============================================================================
+  // ==========================================================================
   // LAST PROCESSED STATES
-  // ============================================================================
+  // ===========================================================================
 
   std::optional<
     colab_supervision_interfaces::msg::OperatorStateAnalysis>
@@ -338,16 +339,24 @@ private:
   rclcpp::Time supervision_received_time_;
   rclcpp::Time trajectory_received_time_;
 
-  // ============================================================================
+  // ==========================================================================
   // ACTIVE PLAN STATE
-  // ============================================================================
+  // ===========================================================================
 
   DecisionPlan active_plan_;
   std::size_t active_step_index_{0};
-  rclcpp::Time current_step_last_publication_time_;
   bool plan_initialized_{false};
 
-  // Used to distinguish each newly published MoveIt plan.
+  // A restart/unlock command is required only after the system has been
+  // paused, blocked or stopped. It is cleared when Sock_Reinicio is published.
+  bool restart_required_{false};
+
+  // Last speed actually sent to the parser. A new VelMax command is emitted
+  // only when the requested value changes by the configured threshold.
+  std::optional<int> last_commanded_speed_percent_;
+
+  // Used to distinguish genuinely new MoveIt plans from the same trajectory
+  // message being received again.
   std::string last_trajectory_signature_;
   std::uint64_t trajectory_generation_{0};
 };

@@ -17,7 +17,6 @@ control_decision:
     decision_rate_hz: 10.0
     max_input_age_sec: 0.50
     max_trajectory_age_sec: 2.0
-    repeat_command_period_sec: 0.50
 
     # ========================================================================
     # OPERATING ZONES
@@ -43,6 +42,13 @@ control_decision:
     full_speed_percent: 100.0
     half_speed_percent: 50.0
     minimum_speed_percent: 5.0
+    speed_change_threshold_percent: 3.0
+
+    # Additional multiplier applied after the distance-based speed profile.
+    # LOW fatigue -> 100% of profile.
+    # MEDIUM fatigue -> 70% of profile (30% additional reduction).
+    # HIGH fatigue -> controlled pause, therefore no speed is applied.
+    fatigue_medium_speed_factor: 0.70
 
     # ========================================================================
     # OPERATOR CONDITIONS

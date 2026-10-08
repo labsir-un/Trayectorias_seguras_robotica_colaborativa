@@ -1,0 +1,8 @@
+<launch>
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/control_test.launch.xml"
+    />
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml"
+    />
+</launch>

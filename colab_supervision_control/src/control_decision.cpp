@@ -54,10 +54,6 @@ ControlDecision::ControlDecision()
     "max_trajectory_age_sec",
     2.0);
 
-  repeat_command_period_sec_ = declare_parameter<double>(
-    "repeat_command_period_sec",
-    0.50);
-
   // --------------------------------------------------------------------------
   // SAFETY ZONES
   // --------------------------------------------------------------------------
@@ -101,6 +97,18 @@ ControlDecision::ControlDecision()
   minimum_speed_percent_ = declare_parameter<double>(
     "minimum_speed_percent",
     5.0);
+
+  speed_change_threshold_percent_ = declare_parameter<double>(
+    "speed_change_threshold_percent",
+    3.0);
+
+  // Medium fatigue applies an additional multiplier to the distance-based
+  // speed profile. A value of 0.70 means the profile speed is reduced by 30%.
+  // LOW fatigue keeps the profile at 100%, while HIGH fatigue is handled by
+  // the pause decision logic.
+  fatigue_medium_speed_factor_ = declare_parameter<double>(
+    "fatigue_medium_speed_factor",
+    0.70);
 
   // --------------------------------------------------------------------------
   // OPERATOR CONDITIONS
@@ -187,10 +195,6 @@ ControlDecision::ControlDecision()
     throw std::invalid_argument("max_trajectory_age_sec must be greater than zero");
   }
 
-  if (repeat_command_period_sec_ < 0.0) {
-    throw std::invalid_argument("repeat_command_period_sec cannot be negative");
-  }
-
   if (zone3_max_distance_ < 0.0) {
     throw std::invalid_argument("zone3_max_distance must be non-negative");
   }
@@ -221,6 +225,17 @@ ControlDecision::ControlDecision()
     minimum_speed_percent_ < 0.0)
   {
     throw std::invalid_argument("Speed percentages must be non-negative");
+  }
+
+  if (speed_change_threshold_percent_ < 0.0) {
+    throw std::invalid_argument(
+      "speed_change_threshold_percent must be non-negative");
+  }
+
+  if (fatigue_medium_speed_factor_ < 0.0 ||
+      fatigue_medium_speed_factor_ > 1.0) {
+    throw std::invalid_argument(
+      "fatigue_medium_speed_factor must be between 0.0 and 1.0");
   }
 
   if (trajectory_min_separation_distance_ < 0.0) {
@@ -306,6 +321,10 @@ ControlDecision::ControlDecision()
     "Command grammar: Variable / Velocidad / Distancia");
   RCLCPP_INFO(
     get_logger(),
+    "Fatigue speed profile: LOW=100%% | MEDIUM=%.0f%% | HIGH=PAUSE",
+    fatigue_medium_speed_factor_ * 100.0);
+  RCLCPP_INFO(
+    get_logger(),
     "Commander is planning only; this node decides and publishes the command");
 
   if (set_offsets_value_.empty()) {
@@ -356,8 +375,15 @@ void ControlDecision::trajectory_callback(
     }
   }
 
-  last_trajectory_signature_ = ss.str();
-  ++trajectory_generation_;
+  const std::string new_signature = ss.str();
+
+  // A repeated copy of the same trajectory is not considered a new plan.
+  // This prevents the control decision node from repeatedly generating the
+  // Interes command when the exact same MoveIt trajectory is retained.
+  if (new_signature != last_trajectory_signature_) {
+    last_trajectory_signature_ = new_signature;
+    ++trajectory_generation_;
+  }
 }
 
 // ============================================================================
@@ -368,25 +394,21 @@ void ControlDecision::decision_timer_callback()
 {
   const DecisionPlan plan = evaluate_decision();
 
+  // A different decision state starts a new one-shot command sequence.
   if (!plan_is_active() || !same_plan(plan)) {
     apply_plan(plan);
     return;
   }
 
+  // Every command step is a pulse. Once published it is never repeated while
+  // the same decision remains active. Multi-step actions advance one command
+  // at a time on subsequent decision cycles.
   if (active_plan_.steps.empty()) {
     return;
   }
 
-  if (active_step_index_ >= active_plan_.steps.size()) {
-    active_step_index_ = active_plan_.steps.size() - 1;
-  }
-
-  if (should_repeat_current_step()) {
-    publish_current_step();
-  }
-  else if (active_step_index_ + 1 < active_plan_.steps.size()) {
+  if (active_step_index_ + 1 < active_plan_.steps.size()) {
     ++active_step_index_;
-    current_step_last_publication_time_ = get_clock()->now();
     publish_current_step();
   }
 }
@@ -442,6 +464,8 @@ bool ControlDecision::operator_condition_anomalous() const
 
   const auto & state = *latest_operator_state_;
 
+  // MEDIUM fatigue is a valid operating condition and does NOT generate a
+  // pause. Only HIGH fatigue is considered anomalous here.
   if (pause_on_fatigue_high_ && state.fatigue_condition == "HIGH") {
     return true;
   }
@@ -455,6 +479,21 @@ bool ControlDecision::operator_condition_anomalous() const
   }
 
   return false;
+}
+
+bool ControlDecision::operator_is_available() const
+{
+  if (!latest_operator_state_.has_value() || !latest_supervision_.has_value()) {
+    return false;
+  }
+
+  // Operator availability is accepted when at least one perception source
+  // has a valid operator observation. In particular, a valid operator state
+  // from /operator/state_analisis is sufficient even when the interaction
+  // camera temporarily does not report the operator.
+  return (
+    latest_operator_state_->operator_present ||
+    latest_supervision_->operator_detected);
 }
 
 bool ControlDecision::collision_is_critical() const
@@ -659,6 +698,70 @@ int ControlDecision::compute_speed_percent(double distance) const
   return static_cast<int>(std::lround(speed));
 }
 
+double ControlDecision::fatigue_speed_factor() const
+{
+  if (!latest_operator_state_.has_value()) {
+    return 1.0;
+  }
+
+  const auto & state = *latest_operator_state_;
+
+  // LOW: use the distance profile without any additional reduction.
+  if (state.fatigue_condition == "LOW") {
+    return 1.0;
+  }
+
+  // MEDIUM: reduce the already calculated distance-based profile by 30%
+  // through the configurable factor (default = 0.70).
+  if (state.fatigue_condition == "MEDIUM") {
+    return fatigue_medium_speed_factor_;
+  }
+
+  // HIGH is not converted to a speed here because it is handled as a pause
+  // condition by operator_condition_anomalous().
+  return 1.0;
+}
+
+int ControlDecision::compute_effective_speed_percent(double distance) const
+{
+  const int profile_speed = compute_speed_percent(distance);
+  const double factor = fatigue_speed_factor();
+
+  const double effective_speed =
+    static_cast<double>(profile_speed) * factor;
+
+  // The fatigue reduction is applied after the distance profile. Therefore
+  // MEDIUM fatigue can reduce even the minimum 5% profile value. Do not clamp
+  // back to minimum_speed_percent_ here, otherwise the requested additional
+  // 30% reduction would be lost near the lower end of the profile.
+  return static_cast<int>(std::lround(
+    std::clamp(effective_speed, 0.0, full_speed_percent_)));
+}
+
+bool ControlDecision::speed_change_requires_command(
+  int desired_speed_percent) const
+{
+  if (!last_commanded_speed_percent_.has_value()) {
+    return true;
+  }
+
+  return std::abs(
+           desired_speed_percent - *last_commanded_speed_percent_) >=
+         speed_change_threshold_percent_;
+}
+
+std::string ControlDecision::speed_signature(int desired_speed_percent) const
+{
+  if (speed_change_requires_command(desired_speed_percent)) {
+    return std::to_string(desired_speed_percent);
+  }
+
+  // Keep the plan signature stable while the requested speed moves inside the
+  // deadband. This avoids rebuilding the plan and sending other commands for
+  // every small fluctuation in distance.
+  return std::to_string(*last_commanded_speed_percent_);
+}
+
 // ============================================================================
 // EXACT COMMAND BUILDERS
 // ============================================================================
@@ -810,8 +913,7 @@ ControlDecision::DecisionPlan ControlDecision::make_emergency_stop_plan(
   plan.signature = "EMERGENCY_STOP";
   plan.reason = reason;
   plan.steps.push_back({
-      make_variable_set("Sock_Parada", "TRUE", reason),
-      true});
+      make_variable_set("Sock_Parada", "TRUE", reason)});
   return plan;
 }
 
@@ -826,12 +928,10 @@ ControlDecision::DecisionPlan ControlDecision::make_safe_stop_plan(
   // Detención segura is represented by pausing the current motion and then
   // blocking new actions. Both commands are part of the user's command grammar.
   plan.steps.push_back({
-      make_variable_set("Sock_Pausa", "TRUE", reason),
-      false});
+      make_variable_set("Sock_Pausa", "TRUE", reason)});
 
   plan.steps.push_back({
-      make_variable_set("Sock_Bloquear", "TRUE", reason),
-      true});
+      make_variable_set("Sock_Bloquear", "TRUE", reason)});
 
   return plan;
 }
@@ -844,8 +944,7 @@ ControlDecision::DecisionPlan ControlDecision::make_pause_plan(
   plan.signature = "PAUSE";
   plan.reason = reason;
   plan.steps.push_back({
-      make_variable_set("Sock_Pausa", "TRUE", reason),
-      true});
+      make_variable_set("Sock_Pausa", "TRUE", reason)});
   return plan;
 }
 
@@ -855,11 +954,11 @@ ControlDecision::DecisionPlan ControlDecision::make_increase_distance_plan(
 {
   DecisionPlan plan;
   plan.action = Action::INCREASE_DISTANCE;
-  plan.signature = "INCREASE_DISTANCE|" +
-    std::to_string(speed_percent) + "|" +
-    distance_move_type_ + "|" +
-    set_offsets_value_ + "|traj=" +
-    std::to_string(trajectory_generation_);
+  plan.signature =
+    "INCREASE_DISTANCE|speed=" + speed_signature(speed_percent) +
+    "|move=" + distance_move_type_ +
+    "|offset=" + set_offsets_value_ +
+    "|traj=" + std::to_string(trajectory_generation_);
   plan.reason = reason;
 
   // No valid offset -> do not send a zero/undefined offset to the robot.
@@ -873,39 +972,36 @@ ControlDecision::DecisionPlan ControlDecision::make_increase_distance_plan(
         make_variable_set(
           "Sock_Bloquear",
           "TRUE",
-          "Block new actions before distance correction"),
-        false});
+          "Block new actions before distance correction")});
   }
 
-  if (send_speed_command_before_motion_) {
+  if (
+    send_speed_command_before_motion_ &&
+    speed_change_requires_command(speed_percent))
+  {
     plan.steps.push_back({
         make_speed_percent(
           speed_percent,
-          "PRIORITY 4: reduce VelMax before increasing separation"),
-        false});
+          "PRIORITY 4: reduce VelMax before increasing separation")});
   }
 
   plan.steps.push_back({
       make_save_exit_point(
-        "PRIORITY 4: save trajectory interruption point before correction"),
-      false});
+        "PRIORITY 4: save trajectory interruption point before correction")});
 
   plan.steps.push_back({
       make_set_offsets(
-        "PRIORITY 4: apply configured [x,y,z] offsets"),
-      false});
+        "PRIORITY 4: apply configured [x,y,z] offsets")});
 
   plan.steps.push_back({
       make_move_temp(
         distance_move_type_,
-        "PRIORITY 4: move to temporary point using configured offset"),
-      false});
+        "PRIORITY 4: move to temporary point using configured offset")});
 
   if (send_trajectory_interest_command_) {
     plan.steps.push_back({
         make_update_interest(
-          "PRIORITY 4: update current origin/target points after distance correction"),
-        false});
+          "PRIORITY 4: update current origin/target points after distance correction")});
   }
 
   return plan;
@@ -918,30 +1014,34 @@ ControlDecision::DecisionPlan ControlDecision::make_limit_speed_plan(
   DecisionPlan plan;
   plan.action = Action::LIMIT_SPEED;
   plan.signature =
-    "LIMIT_SPEED|" + std::to_string(speed_percent) + "|traj=" +
-    std::to_string(trajectory_generation_);
+    "LIMIT_SPEED|speed=" + speed_signature(speed_percent) +
+    "|traj=" + std::to_string(trajectory_generation_);
   plan.reason = reason;
 
-  if (send_restart_before_motion_) {
+  // Sock_Reinicio is sent only after a previous pause/block/stop has actually
+  // been issued. It is never sent continuously during normal operation.
+  if (send_restart_before_motion_ && restart_required_) {
     plan.steps.push_back({
         make_variable_set(
           "Sock_Reinicio",
           "TRUE",
-          "PRIORITY 5: release previous pause/block before controlled motion"),
-        false});
+          "Release previous pause/block/stop before controlled motion")});
   }
 
-  plan.steps.push_back({
-      make_speed_percent(
-        speed_percent,
-        reason),
-      false});
+  if (
+    send_speed_command_before_motion_ &&
+    speed_change_requires_command(speed_percent))
+  {
+    plan.steps.push_back({
+        make_speed_percent(
+          speed_percent,
+          reason)});
+  }
 
   if (send_trajectory_interest_command_) {
     plan.steps.push_back({
         make_update_interest(
-          "PRIORITY 5: execute/update the planned trajectory at reduced speed"),
-        false});
+          "PRIORITY 5: execute/update the planned trajectory at reduced speed")});
   }
 
   return plan;
@@ -954,32 +1054,32 @@ ControlDecision::DecisionPlan ControlDecision::make_normal_operation_plan(
   DecisionPlan plan;
   plan.action = Action::NORMAL_OPERATION;
   plan.signature =
-    "NORMAL_OPERATION|" + std::to_string(speed_percent) + "|traj=" +
-    std::to_string(trajectory_generation_);
+    "NORMAL_OPERATION|speed=" + speed_signature(speed_percent) +
+    "|traj=" + std::to_string(trajectory_generation_);
   plan.reason = reason;
 
-  if (send_restart_before_motion_) {
+  if (send_restart_before_motion_ && restart_required_) {
     plan.steps.push_back({
         make_variable_set(
           "Sock_Reinicio",
           "TRUE",
-          "PRIORITY 6: release previous pause/block before normal operation"),
-        false});
+          "Release previous pause/block/stop before normal operation")});
   }
 
-  if (send_speed_command_before_motion_) {
+  if (
+    send_speed_command_before_motion_ &&
+    speed_change_requires_command(speed_percent))
+  {
     plan.steps.push_back({
         make_speed_percent(
           speed_percent,
-          "PRIORITY 6: set VelMax for normal operation"),
-        false});
+          "PRIORITY 6: set VelMax for normal operation")});
   }
 
   if (send_trajectory_interest_command_) {
     plan.steps.push_back({
         make_update_interest(
-          "PRIORITY 6: command execution/update of the planned trajectory"),
-        false});
+          "PRIORITY 6: command execution/update of the planned trajectory")});
   }
 
   return plan;
@@ -1035,9 +1135,9 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
   // PRIORITY 2 - Z3 + operator detected -> SAFE STOP
   // --------------------------------------------------------------------------
 
-  if (zone == Zone::Z3 && operator_state.operator_present) {
+  if (zone == Zone::Z3 && operator_is_available()) {
     return make_safe_stop_plan(
-      "PRIORITY 2: operator detected in Z3");
+      "PRIORITY 2: operator detected in Z3 by at least one perception source");
   }
 
   // --------------------------------------------------------------------------
@@ -1053,12 +1153,12 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
   }
 
   // --------------------------------------------------------------------------
-  // PRIORITY 3 - operator unavailable -> CONTROLLED PAUSE
+  // PRIORITY 3 - operator unavailable from ALL perception sources
   // --------------------------------------------------------------------------
 
-  if (!operator_state.operator_present) {
+  if (!operator_is_available()) {
     return make_pause_plan(
-      "PRIORITY 3: operator unavailable; controlled pause required");
+      "PRIORITY 3: operator not available in operator analysis or interaction perception");
   }
 
   // --------------------------------------------------------------------------
@@ -1085,10 +1185,10 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
 
   if (zone == Zone::Z4 || zone == Zone::Z5) {
     if (!trajectory_keeps_separation(zone, distance)) {
-      const int speed = compute_speed_percent(distance);
+      const int speed = compute_effective_speed_percent(distance);
       return make_increase_distance_plan(
         speed,
-        "PRIORITY 4: increase separation and reduce speed");
+        "PRIORITY 4: increase separation and apply distance profile with fatigue modifier");
     }
   }
 
@@ -1097,10 +1197,10 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
   // --------------------------------------------------------------------------
 
   if (zone == Zone::Z4 || zone == Zone::Z5) {
-    const int speed = compute_speed_percent(distance);
+    const int speed = compute_effective_speed_percent(distance);
     return make_limit_speed_plan(
       speed,
-      "PRIORITY 5: Z4/Z5 trajectory is executable; reduce speed");
+      "PRIORITY 5: Z4/Z5 trajectory is executable; apply distance profile and fatigue modifier");
   }
 
   // --------------------------------------------------------------------------
@@ -1108,10 +1208,10 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
   // --------------------------------------------------------------------------
 
   if (zone == Zone::Z6) {
-    const int speed = compute_speed_percent(distance);
+    const int speed = compute_effective_speed_percent(distance);
     return make_normal_operation_plan(
       speed,
-      "PRIORITY 6: Z6 operation without anomalous condition");
+      "PRIORITY 6: Z6 operation; apply distance profile and fatigue modifier");
   }
 
   return make_pause_plan(
@@ -1138,12 +1238,11 @@ void ControlDecision::apply_plan(const DecisionPlan & plan)
 {
   active_plan_ = plan;
   active_step_index_ = 0;
-  current_step_last_publication_time_ = get_clock()->now();
   plan_initialized_ = true;
 
   RCLCPP_INFO(
     get_logger(),
-    "DECISION: action=%s | zone/reason=%s | steps=%zu",
+    "DECISION: action=%s | reason=%s | steps=%zu",
     action_to_string(active_plan_.action),
     active_plan_.reason.c_str(),
     active_plan_.steps.size());
@@ -1153,25 +1252,6 @@ void ControlDecision::apply_plan(const DecisionPlan & plan)
   }
 
   publish_current_step();
-}
-
-bool ControlDecision::should_repeat_current_step() const
-{
-  if (active_plan_.steps.empty() ||
-      active_step_index_ >= active_plan_.steps.size())
-  {
-    return false;
-  }
-
-  const auto & step = active_plan_.steps[active_step_index_];
-
-  if (!step.repeat) {
-    return false;
-  }
-
-  return (
-    (get_clock()->now() - current_step_last_publication_time_).seconds() >=
-    repeat_command_period_sec_);
 }
 
 void ControlDecision::publish_current_step()
@@ -1192,7 +1272,7 @@ void ControlDecision::publish_current_step()
 
   RCLCPP_INFO(
     get_logger(),
-    "COMMAND: %s | object=%s | variable=%s | value=%s | reason=%s",
+    "COMMAND [ONE-SHOT]: %s | object=%s | variable=%s | value=%s | reason=%s",
     result.command.c_str(),
     result.object.c_str(),
     result.variable.c_str(),
@@ -1200,10 +1280,43 @@ void ControlDecision::publish_current_step()
     result.reason.c_str());
 
   command_pub_->publish(msg);
-  current_step_last_publication_time_ = get_clock()->now();
+
+  // State changes are recorded only when the corresponding pulse is actually
+  // sent to the parser.
+  if (
+    result.command == "Variable" &&
+    result.object == "SET" &&
+    result.value == "TRUE")
+  {
+    if (
+      result.variable == "Sock_Pausa" ||
+      result.variable == "Sock_Bloquear" ||
+      result.variable == "Sock_Parada")
+    {
+      restart_required_ = true;
+    }
+    else if (result.variable == "Sock_Reinicio") {
+      restart_required_ = false;
+    }
+  }
+
+  if (
+    result.command == "Velocidad" &&
+    result.variable == "VelMax" &&
+    result.object == "Porcentaje")
+  {
+    try {
+      last_commanded_speed_percent_ = std::stoi(result.value);
+    }
+    catch (const std::exception &) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Unable to store commanded speed '%s' as an integer",
+        result.value.c_str());
+    }
+  }
 }
 
-// ============================================================================
 // FORMAT HELPERS
 // ============================================================================
 
