@@ -1,8 +1,20 @@
 <launch>
+
+    <arg
+        name="server_ip"
+        default="172.25.64.1"
+        description="IP del servidor TCP en Windows"
+    />
+
     <include
         file="$(find-pkg-share colab_supervision_bringup)/launch/control_test.launch.xml"
     />
     <include
-        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml"
-    />
+        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml">
+
+        <arg 
+            name="server_ip" 
+            value="$(var server_ip)"
+        />
+    </include>
 </launch>

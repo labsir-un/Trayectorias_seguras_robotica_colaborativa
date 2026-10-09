@@ -36,9 +36,30 @@ target_include_directories(tcp_pose_parser PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
+add_executable(tcp_ready src/tcp_ready.cpp)
+
+ament_target_dependencies(tcp_ready
+  rclcpp
+  std_msgs
+)
+
+add_executable(tcp_joints
+  src/tcp_joints.cpp
+)
+
+ament_target_dependencies(tcp_joints
+  rclcpp
+  std_msgs
+  colab_supervision_interfaces
+)
+
 
 install(
-  TARGETS tcp_socket_node command_bridge tcp_pose_parser
+  TARGETS tcp_socket_node
+  command_bridge 
+  tcp_pose_parser 
+  tcp_ready
+  tcp_joints
   DESTINATION lib/${PROJECT_NAME}
 )
 

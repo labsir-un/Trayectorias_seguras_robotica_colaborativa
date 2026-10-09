@@ -165,10 +165,10 @@ void TcpPoseParserNode::receive_callback(
    * Determinar el tipo de mensaje.
    */
   const bool is_tcp_cua =
-    text.find("TCPcua actual") != std::string::npos;
+    text.find("TCPcua") != std::string::npos;
 
   const bool is_tcp_eul =
-    text.find("TCPeul actual") != std::string::npos;
+    text.find("TCPeul") != std::string::npos;
 
 
   if (!is_tcp_cua && !is_tcp_eul) {

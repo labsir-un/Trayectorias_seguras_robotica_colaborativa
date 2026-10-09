@@ -111,4 +111,16 @@
         />
     </node>
 
+    <node pkg="colab_supervision_abb_brige"
+        exec="tcp_ready"
+        name="tcp_ready"
+        output="screen">
+    </node>
+
+    <node pkg="colab_supervision_abb_brige"
+        exec="tcp_joints"
+        name="tcp_joints"
+        output="screen">
+    </node>
+
 </launch>
