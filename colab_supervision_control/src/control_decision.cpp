@@ -7,6 +7,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace colab_supervision_control
 {
@@ -38,6 +39,22 @@ ControlDecision::ControlDecision()
     "command_topic",
     "/control/command");
 
+  socket_ready_topic_ = declare_parameter<std::string>(
+    "socket_ready_topic", "/SockRes/Ready");
+  tcp_euler_topic_ = declare_parameter<std::string>(
+    "tcp_euler_topic", "/SockRes/TCPeul");
+  tcp_quaternion_topic_ = declare_parameter<std::string>(
+    "tcp_quaternion_topic", "/SockRes/TCPcua");
+  robot_joints_topic_ = declare_parameter<std::string>(
+    "robot_joints_topic", "/SockRes/Joints");
+
+  commander_euler_topic_ = declare_parameter<std::string>(
+    "commander_euler_topic", "/pose_command");
+  commander_quaternion_topic_ = declare_parameter<std::string>(
+    "commander_quaternion_topic", "/posecua_command");
+  commander_joint_topic_ = declare_parameter<std::string>(
+    "commander_joint_topic", "/joint_command");
+
   // --------------------------------------------------------------------------
   // DECISION TIMING
   // --------------------------------------------------------------------------
@@ -53,6 +70,10 @@ ControlDecision::ControlDecision()
   max_trajectory_age_sec_ = declare_parameter<double>(
     "max_trajectory_age_sec",
     2.0);
+  max_robot_joints_age_sec_ = declare_parameter<double>(
+    "max_robot_joints_age_sec", 5.0);
+  max_tcp_state_age_sec_ = declare_parameter<double>(
+    "max_tcp_state_age_sec", 5.0);
 
   // --------------------------------------------------------------------------
   // SAFETY ZONES
@@ -137,6 +158,10 @@ ControlDecision::ControlDecision()
   trajectory_min_separation_distance_ = declare_parameter<double>(
     "trajectory_min_separation_distance",
     0.400);
+  joint_similarity_tolerance_percent_ = declare_parameter<double>(
+    "joint_similarity_tolerance_percent", 5.0);
+  sock_joints_in_degrees_ = declare_parameter<bool>(
+    "sock_joints_in_degrees", false);
 
   // --------------------------------------------------------------------------
   // COMMAND GRAMMAR
@@ -171,6 +196,19 @@ ControlDecision::ControlDecision()
     "set_offsets_value",
     "");
 
+  commander_pose_mode_ = declare_parameter<std::string>(
+    "commander_pose_mode", "quaternion");
+  commander_cartesian_path_ = declare_parameter<bool>(
+    "commander_cartesian_path", false);
+  tcp_position_scale_to_commander_ = declare_parameter<double>(
+    "tcp_position_scale_to_commander", 0.001);
+  tcp_euler_angles_in_degrees_ = declare_parameter<bool>(
+    "tcp_euler_angles_in_degrees", true);
+  command_queue_capacity_ = declare_parameter<int>(
+    "command_queue_capacity", 20);
+  command_queue_ttl_sec_ = declare_parameter<double>(
+    "command_queue_ttl_sec", 60.0);
+
   safe_posture_joint_point_ = declare_parameter<std::string>(
     "safe_posture_joint_point",
     "");
@@ -193,6 +231,27 @@ ControlDecision::ControlDecision()
 
   if (max_trajectory_age_sec_ <= 0.0) {
     throw std::invalid_argument("max_trajectory_age_sec must be greater than zero");
+  }
+  if (max_robot_joints_age_sec_ <= 0.0 || max_tcp_state_age_sec_ <= 0.0) {
+    throw std::invalid_argument("Robot joint and TCP state age limits must be positive");
+  }
+  if (joint_similarity_tolerance_percent_ < 0.0 ||
+      joint_similarity_tolerance_percent_ > 100.0) {
+    throw std::invalid_argument("joint_similarity_tolerance_percent must be in [0,100]");
+  }
+  if (command_queue_capacity_ < 1 || command_queue_capacity_ > 20) {
+    throw std::invalid_argument("command_queue_capacity must be between 1 and 20");
+  }
+  if (command_queue_ttl_sec_ <= 0.0 || command_queue_ttl_sec_ > 60.0) {
+    throw std::invalid_argument("command_queue_ttl_sec must be in (0, 60] seconds");
+  }
+  if (commander_pose_mode_ != "quaternion" && commander_pose_mode_ != "euler" &&
+      commander_pose_mode_ != "joints") {
+    throw std::invalid_argument("commander_pose_mode must be quaternion, euler, or joints");
+  }
+  if (!std::isfinite(tcp_position_scale_to_commander_) ||
+      tcp_position_scale_to_commander_ <= 0.0) {
+    throw std::invalid_argument("tcp_position_scale_to_commander must be positive and finite");
   }
 
   if (zone3_max_distance_ < 0.0) {
@@ -282,14 +341,32 @@ ControlDecision::ControlDecision()
         this,
         std::placeholders::_1));
 
+  socket_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+    socket_ready_topic_, 10,
+    std::bind(&ControlDecision::socket_ready_callback, this, std::placeholders::_1));
+  tcp_euler_sub_ = create_subscription<colab_supervision_interfaces::msg::PoseCommand>(
+    tcp_euler_topic_, 10,
+    std::bind(&ControlDecision::tcp_euler_callback, this, std::placeholders::_1));
+  tcp_quaternion_sub_ = create_subscription<colab_supervision_interfaces::msg::PoseCuaCommand>(
+    tcp_quaternion_topic_, 10,
+    std::bind(&ControlDecision::tcp_quaternion_callback, this, std::placeholders::_1));
+  robot_joints_sub_ = create_subscription<colab_supervision_interfaces::msg::Joints>(
+    robot_joints_topic_, 10,
+    std::bind(&ControlDecision::robot_joints_callback, this, std::placeholders::_1));
+
   // --------------------------------------------------------------------------
-  // PUBLISHER
+  // PUBLISHERS
   // --------------------------------------------------------------------------
 
   command_pub_ =
     create_publisher<colab_supervision_interfaces::msg::ControlCommand>(
-      command_topic_,
-      10);
+      command_topic_, 10);
+  commander_euler_pub_ = create_publisher<colab_supervision_interfaces::msg::PoseCommand>(
+    commander_euler_topic_, 10);
+  commander_quaternion_pub_ = create_publisher<colab_supervision_interfaces::msg::PoseCuaCommand>(
+    commander_quaternion_topic_, 10);
+  commander_joint_pub_ = create_publisher<colab_supervision_interfaces::msg::Joints>(
+    commander_joint_topic_, 10);
 
   // --------------------------------------------------------------------------
   // DECISION TIMER
@@ -311,7 +388,16 @@ ControlDecision::ControlDecision()
   RCLCPP_INFO(get_logger(), "Operator state: %s", operator_state_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Supervision state: %s", supervision_topic_.c_str());
   RCLCPP_INFO(get_logger(), "MoveIt trajectory: %s", trajectory_topic_.c_str());
-  RCLCPP_INFO(get_logger(), "Control command: %s", command_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "Control command output: %s", command_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "Socket ready: %s", socket_ready_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "TCP Euler input: %s -> Commander %s",
+    tcp_euler_topic_.c_str(), commander_euler_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "TCP quaternion input: %s -> Commander %s",
+    tcp_quaternion_topic_.c_str(), commander_quaternion_topic_.c_str());
+  RCLCPP_INFO(get_logger(), "Robot joints: %s | queue=%d | TTL=%.1f s",
+    robot_joints_topic_.c_str(), command_queue_capacity_, command_queue_ttl_sec_);
+  RCLCPP_INFO(get_logger(), "Joint endpoint similarity tolerance: %.2f%%",
+    joint_similarity_tolerance_percent_);
   RCLCPP_INFO(
     get_logger(),
     "Zones: Z3 < %.3f | Z4 < %.3f | Z5 <= %.3f | Z6 > %.3f m",
@@ -358,32 +444,85 @@ void ControlDecision::supervision_callback(
 void ControlDecision::trajectory_callback(
   const moveit_msgs::msg::RobotTrajectory::SharedPtr msg)
 {
+  const auto now = get_clock()->now();
   latest_trajectory_ = *msg;
-  trajectory_received_time_ = get_clock()->now();
+  trajectory_received_time_ = now;
 
-  // Build a lightweight signature from trajectory content. This is used to
-  // distinguish a new MoveIt plan from the same plan being retained.
-  std::ostringstream ss;
-  ss << latest_trajectory_->joint_trajectory.joint_names.size() << "|"
-     << latest_trajectory_->joint_trajectory.points.size();
-
-  if (!latest_trajectory_->joint_trajectory.points.empty()) {
-    const auto & p = latest_trajectory_->joint_trajectory.points.back();
-    ss << "|" << p.positions.size();
-    for (const auto value : p.positions) {
-      ss << "|" << std::setprecision(9) << value;
-    }
+  latest_trajectory_is_commander_feedback_ =
+    commander_feedback_expected_ && now <= commander_feedback_deadline_;
+  if (latest_trajectory_is_commander_feedback_) {
+    RCLCPP_INFO(get_logger(),
+      "Received a trajectory resulting from the stored TCP command to Commander; "
+      "feedback loop protection enabled for this trajectory.");
+  }
+  if (commander_feedback_expected_ && now > commander_feedback_deadline_) {
+    commander_feedback_expected_ = false;
+  } else if (latest_trajectory_is_commander_feedback_) {
+    commander_feedback_expected_ = false;
   }
 
-  const std::string new_signature = ss.str();
-
-  // A repeated copy of the same trajectory is not considered a new plan.
-  // This prevents the control decision node from repeatedly generating the
-  // Interes command when the exact same MoveIt trajectory is retained.
+  const std::string new_signature = trajectory_signature(*latest_trajectory_);
   if (new_signature != last_trajectory_signature_) {
     last_trajectory_signature_ = new_signature;
     ++trajectory_generation_;
   }
+
+  if (trajectory_points_valid() && robot_joints_available()) {
+    const auto error = trajectory_endpoint_error_percent();
+    if (error.has_value()) {
+      RCLCPP_INFO(get_logger(),
+        "MoveIt endpoint compared with /SockRes/Joints: normalized mean error=%.3f%%; "
+        "threshold=%.3f%%; action=%s",
+        *error, joint_similarity_tolerance_percent_,
+        (*error < joint_similarity_tolerance_percent_) ? "IGNORE (same configuration)" : "MOTION CANDIDATE");
+    }
+  } else {
+    RCLCPP_WARN(get_logger(),
+      "Received MoveIt trajectory but cannot compare its endpoint yet: valid trajectory or fresh /SockRes/Joints unavailable.");
+  }
+}
+
+void ControlDecision::socket_ready_callback(const std_msgs::msg::Bool::SharedPtr msg)
+{
+  socket_ready_ = msg->data;
+  if (socket_ready_) {
+    // A Ready=true publication acknowledges that the socket can accept another
+    // command. Dispatch exactly one queued command, then lower the local gate.
+    command_in_flight_ = false;
+    purge_expired_commands();
+    dispatch_next_command();
+  }
+}
+
+void ControlDecision::tcp_euler_callback(
+  const colab_supervision_interfaces::msg::PoseCommand::SharedPtr msg)
+{
+  latest_tcp_euler_ = *msg;
+  tcp_euler_received_time_ = get_clock()->now();
+}
+
+void ControlDecision::tcp_quaternion_callback(
+  const colab_supervision_interfaces::msg::PoseCuaCommand::SharedPtr msg)
+{
+  latest_tcp_quaternion_ = *msg;
+  tcp_quaternion_received_time_ = get_clock()->now();
+}
+
+void ControlDecision::robot_joints_callback(
+  const colab_supervision_interfaces::msg::Joints::SharedPtr msg)
+{
+  if (msg->data.size() < 1U) {
+    RCLCPP_WARN(get_logger(), "Ignoring empty /SockRes/Joints message.");
+    return;
+  }
+  for (const auto value : msg->data) {
+    if (!std::isfinite(value)) {
+      RCLCPP_WARN(get_logger(), "Ignoring /SockRes/Joints containing a non-finite value.");
+      return;
+    }
+  }
+  latest_robot_joints_ = *msg;
+  robot_joints_received_time_ = get_clock()->now();
 }
 
 // ============================================================================
@@ -392,24 +531,17 @@ void ControlDecision::trajectory_callback(
 
 void ControlDecision::decision_timer_callback()
 {
+  purge_expired_commands();
   const DecisionPlan plan = evaluate_decision();
 
-  // A different decision state starts a new one-shot command sequence.
+  // Plans are edge-triggered: enqueue their sequence once, not on each timer
+  // tick. Socket readiness callback advances the queue after every response.
   if (!plan_is_active() || !same_plan(plan)) {
     apply_plan(plan);
-    return;
   }
 
-  // Every command step is a pulse. Once published it is never repeated while
-  // the same decision remains active. Multi-step actions advance one command
-  // at a time on subsequent decision cycles.
-  if (active_plan_.steps.empty()) {
-    return;
-  }
-
-  if (active_step_index_ + 1 < active_plan_.steps.size()) {
-    ++active_step_index_;
-    publish_current_step();
+  if (socket_ready_ && !command_in_flight_) {
+    dispatch_next_command();
   }
 }
 
@@ -612,10 +744,76 @@ bool ControlDecision::trajectory_points_valid() const
 
 bool ControlDecision::trajectory_target_reachable() const
 {
-  // MoveIt only publishes a trajectory after a successful plan. Therefore,
-  // at this interface level, a fresh trajectory with valid joint points is
-  // the indication that the requested target is reachable by the planner.
-  return trajectory_points_valid();
+  // A trajectory is eligible for a motion decision only if its endpoint can
+  // be compared with a recent robot configuration returned by the socket.
+  return trajectory_points_valid() && robot_joints_available() &&
+         trajectory_endpoint_error_percent().has_value();
+}
+
+bool ControlDecision::robot_joints_available() const
+{
+  if (!latest_robot_joints_.has_value() || latest_robot_joints_->data.empty()) {
+    return false;
+  }
+  return (get_clock()->now() - robot_joints_received_time_).seconds() <=
+         max_robot_joints_age_sec_;
+}
+
+std::optional<double> ControlDecision::trajectory_endpoint_error_percent() const
+{
+  if (!trajectory_points_valid() || !robot_joints_available()) {
+    return std::nullopt;
+  }
+
+  const auto & joint_trajectory = latest_trajectory_->joint_trajectory;
+  const auto & endpoint = joint_trajectory.points.back().positions;
+  std::vector<double> measured = latest_robot_joints_->data;
+
+  if (sock_joints_in_degrees_) {
+    constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+    for (auto & value : measured) {
+      value *= kDegToRad;
+    }
+  }
+
+  if (endpoint.empty() || endpoint.size() != measured.size()) {
+    return std::nullopt;
+  }
+
+  // Mean absolute joint error normalized by one full revolution (2*pi rad)
+  // per axis. An error <5% means the endpoint is close enough to the current
+  // configuration that issuing a new motion would be redundant.
+  constexpr double kFullRevolutionRad = 2.0 * 3.14159265358979323846;
+  double error_sum = 0.0;
+  for (std::size_t i = 0; i < endpoint.size(); ++i) {
+    if (!std::isfinite(endpoint[i]) || !std::isfinite(measured[i])) {
+      return std::nullopt;
+    }
+    // All six ABB IRB 140 joints are revolute. Compare the shortest angular
+    // distance so, for example, +179 deg and -181 deg are treated as equivalent.
+    const double angular_error = std::remainder(
+      endpoint[i] - measured[i], kFullRevolutionRad);
+    error_sum += std::abs(angular_error);
+  }
+  const double mean_error = error_sum / static_cast<double>(endpoint.size());
+  return (mean_error / kFullRevolutionRad) * 100.0;
+}
+
+bool ControlDecision::trajectory_endpoint_matches_current_joints() const
+{
+  const auto error = trajectory_endpoint_error_percent();
+  return error.has_value() && *error < joint_similarity_tolerance_percent_;
+}
+
+bool ControlDecision::trajectory_requires_motion() const
+{
+  const auto error = trajectory_endpoint_error_percent();
+  return error.has_value() && *error >= joint_similarity_tolerance_percent_;
+}
+
+bool ControlDecision::trajectory_is_current_feedback() const
+{
+  return latest_trajectory_is_commander_feedback_;
 }
 
 bool ControlDecision::trajectory_keeps_separation(
@@ -998,7 +1196,8 @@ ControlDecision::DecisionPlan ControlDecision::make_increase_distance_plan(
         distance_move_type_,
         "PRIORITY 4: move to temporary point using configured offset")});
 
-  if (send_trajectory_interest_command_) {
+  if (send_trajectory_interest_command_ && trajectory_requires_motion() &&
+      last_interes_trajectory_signature_ != last_trajectory_signature_) {
     plan.steps.push_back({
         make_update_interest(
           "PRIORITY 4: update current origin/target points after distance correction")});
@@ -1038,10 +1237,13 @@ ControlDecision::DecisionPlan ControlDecision::make_limit_speed_plan(
           reason)});
   }
 
-  if (send_trajectory_interest_command_) {
+  if (send_trajectory_interest_command_ && trajectory_requires_motion() &&
+      last_interes_trajectory_signature_ != last_trajectory_signature_) {
     plan.steps.push_back({
         make_update_interest(
           "PRIORITY 5: execute/update the planned trajectory at reduced speed")});
+  } else if (trajectory_endpoint_matches_current_joints()) {
+    RCLCPP_INFO(get_logger(), "Skipping Interes: MoveIt endpoint is within the joint similarity threshold.");
   }
 
   return plan;
@@ -1076,10 +1278,13 @@ ControlDecision::DecisionPlan ControlDecision::make_normal_operation_plan(
           "PRIORITY 6: set VelMax for normal operation")});
   }
 
-  if (send_trajectory_interest_command_) {
+  if (send_trajectory_interest_command_ && trajectory_requires_motion() &&
+      last_interes_trajectory_signature_ != last_trajectory_signature_) {
     plan.steps.push_back({
         make_update_interest(
           "PRIORITY 6: command execution/update of the planned trajectory")});
+  } else if (trajectory_endpoint_matches_current_joints()) {
+    RCLCPP_INFO(get_logger(), "Skipping Interes: MoveIt endpoint is within the joint similarity threshold.");
   }
 
   return plan;
@@ -1236,85 +1441,294 @@ bool ControlDecision::same_plan(const DecisionPlan & plan) const
 
 void ControlDecision::apply_plan(const DecisionPlan & plan)
 {
+  // A different decision supersedes commands that have not reached the socket.
+  // Keep the in-flight command untouched, but discard queued steps belonging to
+  // the previous plan so stale motion cannot be executed after conditions change.
+  const bool pending_interest = std::any_of(
+    command_queue_.begin(), command_queue_.end(),
+    [](const QueuedCommand & queued) {
+      return queued.command.command == "Distancia" &&
+        queued.command.object == "CambiarTrayectoria" &&
+        queued.command.variable == "ActualizarPuntos" &&
+        queued.command.value == "Interes";
+    });
+  const bool safety_action = plan.action == Action::EMERGENCY_STOP ||
+    plan.action == Action::SAFE_STOP || plan.action == Action::PAUSE;
+  command_queue_.clear();
+  if (pending_interest || safety_action) {
+    last_interes_trajectory_signature_.clear();
+  }
+
+
   active_plan_ = plan;
   active_step_index_ = 0;
+  plan_initialized_ = false;
+
+  RCLCPP_INFO(
+    get_logger(),
+    "DECISION: action=%s | reason=%s | steps=%zu | queue=%zu",
+    action_to_string(active_plan_.action), active_plan_.reason.c_str(),
+    active_plan_.steps.size(), command_queue_.size());
+
+  enqueue_plan_commands(active_plan_);
   plan_initialized_ = true;
 
-  RCLCPP_INFO(
-    get_logger(),
-    "DECISION: action=%s | reason=%s | steps=%zu",
-    action_to_string(active_plan_.action),
-    active_plan_.reason.c_str(),
-    active_plan_.steps.size());
+  const bool motion_permitted =
+    active_plan_.action == Action::LIMIT_SPEED ||
+    active_plan_.action == Action::NORMAL_OPERATION;
 
-  if (active_plan_.steps.empty()) {
-    return;
+  if (motion_permitted && trajectory_requires_motion() &&
+      !trajectory_is_current_feedback())
+  {
+    publish_cached_tcp_to_commander_once();
   }
 
-  publish_current_step();
+  if (socket_ready_ && !command_in_flight_) {
+    dispatch_next_command();
+  }
 }
 
-void ControlDecision::publish_current_step()
+void ControlDecision::enqueue_plan_commands(const DecisionPlan & plan)
 {
-  if (active_plan_.steps.empty() ||
-      active_step_index_ >= active_plan_.steps.size())
-  {
+  for (const auto & step : plan.steps) {
+    const auto & command = step.command;
+    const bool pulse_already_sent = command.command == "Variable" &&
+      command.object == "SET" && command.value == "TRUE" &&
+      ((command.variable == "Sock_Pausa" && pause_pulse_sent_) ||
+       (command.variable == "Sock_Bloquear" && block_pulse_sent_) ||
+       (command.variable == "Sock_Parada" && stop_pulse_sent_));
+    if (pulse_already_sent) {
+      RCLCPP_DEBUG(get_logger(), "Skipping previously-sent pulse %s while rebuilding plan.",
+        command.variable.c_str());
+      continue;
+    }
+
+    const auto size_before = command_queue_.size();
+    enqueue_command(command, false);
+
+    const bool enqueued = command_queue_.size() > size_before;
+    if (enqueued && step.command.command == "Distancia" &&
+        step.command.object == "CambiarTrayectoria" &&
+        step.command.variable == "ActualizarPuntos" &&
+        step.command.value == "Interes")
+    {
+      last_interes_trajectory_signature_ = last_trajectory_signature_;
+    }
+  }
+}
+
+void ControlDecision::enqueue_command(const DecisionResult & command, bool priority)
+{
+  purge_expired_commands();
+
+  if (priority) {
+    // Put safety pulses ahead of noncritical commands. Clear the queue to avoid
+    // executing old movement commands after a newly-detected safety event.
+    command_queue_.clear();
+    command_queue_.push_front({command, std::chrono::steady_clock::now()});
     return;
   }
 
-  const auto & result = active_plan_.steps[active_step_index_].command;
+  if (command_queue_.size() >= static_cast<std::size_t>(command_queue_capacity_)) {
+    RCLCPP_WARN(get_logger(),
+      "Socket command queue full (%zu/%d). Dropping new command: %s/%s/%s/%s",
+      command_queue_.size(), command_queue_capacity_, command.command.c_str(),
+      command.object.c_str(), command.variable.c_str(), command.value.c_str());
+    return;
+  }
+
+  command_queue_.push_back({command, std::chrono::steady_clock::now()});
+}
+
+void ControlDecision::purge_expired_commands()
+{
+  const auto now = std::chrono::steady_clock::now();
+  const auto ttl = std::chrono::duration<double>(command_queue_ttl_sec_);
+  std::size_t removed = 0;
+  bool expired_interest = false;
+
+  for (auto it = command_queue_.begin(); it != command_queue_.end();) {
+    if (now - it->enqueued_at > ttl) {
+      expired_interest = expired_interest || (
+        it->command.command == "Distancia" &&
+        it->command.object == "CambiarTrayectoria" &&
+        it->command.variable == "ActualizarPuntos" &&
+        it->command.value == "Interes");
+      it = command_queue_.erase(it);
+      ++removed;
+    } else {
+      ++it;
+    }
+  }
+
+  if (removed > 0U) {
+    // If one step in a command sequence expires, discard the remaining queued
+    // steps too. Re-evaluate the current state before composing a fresh plan.
+    command_queue_.clear();
+    plan_initialized_ = false;
+    if (expired_interest) {
+      last_interes_trajectory_signature_.clear();
+    }
+    RCLCPP_WARN(get_logger(),
+      "Removed %zu expired socket command(s). Remaining sequence discarded; "
+      "decision will be reevaluated before a new command is queued.", removed);
+  }
+}
+
+void ControlDecision::dispatch_next_command()
+{
+  if (!socket_ready_ || command_in_flight_) {
+    return;
+  }
+
+  purge_expired_commands();
+  if (command_queue_.empty()) {
+    return;
+  }
+
+  const auto queued = command_queue_.front();
+  command_queue_.pop_front();
 
   colab_supervision_interfaces::msg::ControlCommand msg;
-  msg.command = result.command;
-  msg.object = result.object;
-  msg.variable = result.variable;
-  msg.value = result.value;
+  msg.command = queued.command.command;
+  msg.object = queued.command.object;
+  msg.variable = queued.command.variable;
+  msg.value = queued.command.value;
 
-  RCLCPP_INFO(
-    get_logger(),
-    "COMMAND [ONE-SHOT]: %s | object=%s | variable=%s | value=%s | reason=%s",
-    result.command.c_str(),
-    result.object.c_str(),
-    result.variable.c_str(),
-    result.value.c_str(),
-    result.reason.c_str());
+  RCLCPP_INFO(get_logger(),
+    "SOCKET TX [ONE-SHOT]: %s/%s/%s/%s | reason=%s | pending=%zu",
+    queued.command.command.c_str(), queued.command.object.c_str(),
+    queued.command.variable.c_str(), queued.command.value.c_str(),
+    queued.command.reason.c_str(), command_queue_.size());
 
+  // Publish one command and lower the local Ready gate until the next
+  // /SockRes/Ready=true response from the bridge.
+  socket_ready_ = false;
+  command_in_flight_ = true;
   command_pub_->publish(msg);
 
-  // State changes are recorded only when the corresponding pulse is actually
-  // sent to the parser.
-  if (
-    result.command == "Variable" &&
-    result.object == "SET" &&
-    result.value == "TRUE")
-  {
-    if (
-      result.variable == "Sock_Pausa" ||
-      result.variable == "Sock_Bloquear" ||
-      result.variable == "Sock_Parada")
-    {
+  if (msg.command == "Variable" && msg.object == "SET" && msg.value == "TRUE") {
+    if (msg.variable == "Sock_Pausa") {
       restart_required_ = true;
-    }
-    else if (result.variable == "Sock_Reinicio") {
+      pause_pulse_sent_ = true;
+    } else if (msg.variable == "Sock_Bloquear") {
+      restart_required_ = true;
+      block_pulse_sent_ = true;
+    } else if (msg.variable == "Sock_Parada") {
+      restart_required_ = true;
+      stop_pulse_sent_ = true;
+    } else if (msg.variable == "Sock_Reinicio") {
       restart_required_ = false;
+      pause_pulse_sent_ = false;
+      block_pulse_sent_ = false;
+      stop_pulse_sent_ = false;
     }
   }
 
-  if (
-    result.command == "Velocidad" &&
-    result.variable == "VelMax" &&
-    result.object == "Porcentaje")
-  {
+  if (msg.command == "Velocidad" && msg.object == "Porcentaje" && msg.variable == "VelMax") {
     try {
-      last_commanded_speed_percent_ = std::stoi(result.value);
-    }
-    catch (const std::exception &) {
-      RCLCPP_WARN(
-        get_logger(),
-        "Unable to store commanded speed '%s' as an integer",
-        result.value.c_str());
+      last_commanded_speed_percent_ = std::stoi(msg.value);
+    } catch (const std::exception &) {
+      RCLCPP_WARN(get_logger(), "Unable to store commanded speed '%s' as an integer", msg.value.c_str());
     }
   }
+}
+
+void ControlDecision::publish_cached_tcp_to_commander_once()
+{
+  if (latest_trajectory_.has_value() &&
+      last_commander_sent_trajectory_signature_ == last_trajectory_signature_) {
+    return;
+  }
+
+  const auto now = get_clock()->now();
+  if (commander_pose_mode_ == "quaternion") {
+    if (!latest_tcp_quaternion_.has_value() ||
+        (now - tcp_quaternion_received_time_).seconds() > max_tcp_state_age_sec_) {
+      RCLCPP_WARN(get_logger(),
+        "Motion is authorized but no fresh /SockRes/TCPcua is available; "
+        "Commander pose command was not published.");
+      return;
+    }
+    auto command = *latest_tcp_quaternion_;
+    command.pose.x *= tcp_position_scale_to_commander_;
+    command.pose.y *= tcp_position_scale_to_commander_;
+    command.pose.z *= tcp_position_scale_to_commander_;
+    command.cartesian_path = commander_cartesian_path_;
+    commander_feedback_expected_ = true;
+    commander_feedback_deadline_ = now + rclcpp::Duration::from_seconds(3.0);
+    last_commander_sent_trajectory_signature_ = last_trajectory_signature_;
+    commander_quaternion_pub_->publish(command);
+    RCLCPP_INFO(get_logger(),
+      "Published stored TCP quaternion to Commander on %s (one-shot).",
+      commander_quaternion_topic_.c_str());
+    return;
+  }
+
+  if (commander_pose_mode_ == "euler") {
+    if (!latest_tcp_euler_.has_value() ||
+        (now - tcp_euler_received_time_).seconds() > max_tcp_state_age_sec_) {
+      RCLCPP_WARN(get_logger(),
+        "Motion is authorized but no fresh /SockRes/TCPeul is available; "
+        "Commander pose command was not published.");
+      return;
+    }
+    auto command = *latest_tcp_euler_;
+    command.pose.x *= tcp_position_scale_to_commander_;
+    command.pose.y *= tcp_position_scale_to_commander_;
+    command.pose.z *= tcp_position_scale_to_commander_;
+    if (tcp_euler_angles_in_degrees_) {
+      constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+      command.pose.roll *= kDegToRad;
+      command.pose.pitch *= kDegToRad;
+      command.pose.yaw *= kDegToRad;
+    }
+    command.cartesian_path = commander_cartesian_path_;
+    commander_feedback_expected_ = true;
+    commander_feedback_deadline_ = now + rclcpp::Duration::from_seconds(3.0);
+    last_commander_sent_trajectory_signature_ = last_trajectory_signature_;
+    commander_euler_pub_->publish(command);
+    RCLCPP_INFO(get_logger(),
+      "Published stored TCP Euler pose to Commander on %s (one-shot).",
+      commander_euler_topic_.c_str());
+    return;
+  }
+
+  // In joint mode send the planned endpoint through Commander's Joints input.
+  // The two TCP response messages continue to be cached for later decisions.
+  if (!trajectory_points_valid()) {
+    return;
+  }
+  colab_supervision_interfaces::msg::Joints command;
+  command.data = latest_trajectory_->joint_trajectory.points.back().positions;
+  commander_feedback_expected_ = true;
+  commander_feedback_deadline_ = now + rclcpp::Duration::from_seconds(3.0);
+  last_commander_sent_trajectory_signature_ = last_trajectory_signature_;
+  commander_joint_pub_->publish(command);
+  RCLCPP_INFO(get_logger(),
+    "Published MoveIt endpoint configuration to Commander on %s (one-shot).",
+    commander_joint_topic_.c_str());
+}
+
+std::string ControlDecision::trajectory_signature(
+  const moveit_msgs::msg::RobotTrajectory & trajectory) const
+{
+  std::ostringstream ss;
+  const auto & joint_trajectory = trajectory.joint_trajectory;
+  ss << joint_trajectory.joint_names.size() << "|"
+     << joint_trajectory.points.size();
+  for (const auto & name : joint_trajectory.joint_names) {
+    ss << "|" << name;
+  }
+  // Include every waypoint, not only the endpoint: distinct paths can have the
+  // same goal while representing different motion plans.
+  for (const auto & point : joint_trajectory.points) {
+    ss << "|" << point.positions.size();
+    for (const auto value : point.positions) {
+      ss << "|" << std::setprecision(9) << value;
+    }
+  }
+  return ss.str();
 }
 
 // FORMAT HELPERS

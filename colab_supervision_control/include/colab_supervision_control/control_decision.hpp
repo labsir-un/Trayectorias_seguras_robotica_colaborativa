@@ -1,7 +1,9 @@
 #ifndef COLAB_SUPERVISION_CONTROL__CONTROL_DECISION_HPP_
 #define COLAB_SUPERVISION_CONTROL__CONTROL_DECISION_HPP_
 
+#include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -12,8 +14,12 @@
 #include <colab_supervision_interfaces/msg/control_command.hpp>
 #include <colab_supervision_interfaces/msg/operator_state_analysis.hpp>
 #include <colab_supervision_interfaces/msg/robot_operator_supervision.hpp>
+#include <colab_supervision_interfaces/msg/joints.hpp>
+#include <colab_supervision_interfaces/msg/pose_command.hpp>
+#include <colab_supervision_interfaces/msg/pose_cua_command.hpp>
 
 #include <moveit_msgs/msg/robot_trajectory.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 namespace colab_supervision_control
 {
@@ -97,6 +103,14 @@ private:
   void trajectory_callback(
     const moveit_msgs::msg::RobotTrajectory::SharedPtr msg);
 
+  void socket_ready_callback(const std_msgs::msg::Bool::SharedPtr msg);
+  void tcp_euler_callback(
+    const colab_supervision_interfaces::msg::PoseCommand::SharedPtr msg);
+  void tcp_quaternion_callback(
+    const colab_supervision_interfaces::msg::PoseCuaCommand::SharedPtr msg);
+  void robot_joints_callback(
+    const colab_supervision_interfaces::msg::Joints::SharedPtr msg);
+
   // ==========================================================================
   // MAIN DECISION LOOP
   // ===========================================================================
@@ -136,6 +150,11 @@ private:
   bool trajectory_available() const;
   bool trajectory_target_reachable() const;
   bool trajectory_points_valid() const;
+  bool robot_joints_available() const;
+  bool trajectory_endpoint_matches_current_joints() const;
+  std::optional<double> trajectory_endpoint_error_percent() const;
+  bool trajectory_requires_motion() const;
+  bool trajectory_is_current_feedback() const;
 
   bool trajectory_keeps_separation(
     Zone zone,
@@ -232,9 +251,16 @@ private:
   // ===========================================================================
 
   void apply_plan(const DecisionPlan & plan);
-  void publish_current_step();
+  void enqueue_plan_commands(const DecisionPlan & plan);
+  void enqueue_command(const DecisionResult & command, bool priority = false);
+  void purge_expired_commands();
+  void dispatch_next_command();
   bool plan_is_active() const;
   bool same_plan(const DecisionPlan & plan) const;
+
+  void publish_cached_tcp_to_commander_once();
+  std::string trajectory_signature(
+    const moveit_msgs::msg::RobotTrajectory & trajectory) const;
 
   // ==========================================================================
   // COMMAND HELPERS
@@ -256,10 +282,19 @@ private:
   std::string supervision_topic_;
   std::string trajectory_topic_;
   std::string command_topic_;
+  std::string socket_ready_topic_;
+  std::string tcp_euler_topic_;
+  std::string tcp_quaternion_topic_;
+  std::string robot_joints_topic_;
+  std::string commander_euler_topic_;
+  std::string commander_quaternion_topic_;
+  std::string commander_joint_topic_;
 
   double decision_rate_hz_;
   double max_input_age_sec_;
   double max_trajectory_age_sec_;
+  double max_robot_joints_age_sec_;
+  double max_tcp_state_age_sec_;
 
   // Zones
   double zone3_max_distance_;
@@ -285,6 +320,8 @@ private:
   // Trajectory safety
   bool conservative_trajectory_check_;
   double trajectory_min_separation_distance_;
+  double joint_similarity_tolerance_percent_;
+  bool sock_joints_in_degrees_;
 
   // Command grammar / trajectory execution
   bool send_trajectory_interest_command_;
@@ -293,6 +330,14 @@ private:
   bool block_during_distance_correction_;
   std::string distance_move_type_;
   std::string set_offsets_value_;
+  std::string commander_pose_mode_;
+  bool commander_cartesian_path_;
+  double tcp_position_scale_to_commander_;
+  bool tcp_euler_angles_in_degrees_;
+
+  // Socket queue configuration. A command is sent only after Ready=true.
+  int command_queue_capacity_;
+  double command_queue_ttl_sec_;
 
   // Optional safe posture commands reserved for later integration
   std::string safe_posture_joint_point_;
@@ -314,9 +359,30 @@ private:
     moveit_msgs::msg::RobotTrajectory>::SharedPtr
     trajectory_sub_;
 
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr
+    socket_ready_sub_;
+  rclcpp::Subscription<
+    colab_supervision_interfaces::msg::PoseCommand>::SharedPtr
+    tcp_euler_sub_;
+  rclcpp::Subscription<
+    colab_supervision_interfaces::msg::PoseCuaCommand>::SharedPtr
+    tcp_quaternion_sub_;
+  rclcpp::Subscription<
+    colab_supervision_interfaces::msg::Joints>::SharedPtr
+    robot_joints_sub_;
+
   rclcpp::Publisher<
     colab_supervision_interfaces::msg::ControlCommand>::SharedPtr
     command_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::PoseCommand>::SharedPtr
+    commander_euler_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::PoseCuaCommand>::SharedPtr
+    commander_quaternion_pub_;
+  rclcpp::Publisher<
+    colab_supervision_interfaces::msg::Joints>::SharedPtr
+    commander_joint_pub_;
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
 
@@ -334,10 +400,19 @@ private:
 
   std::optional<moveit_msgs::msg::RobotTrajectory>
     latest_trajectory_;
+  std::optional<colab_supervision_interfaces::msg::PoseCommand>
+    latest_tcp_euler_;
+  std::optional<colab_supervision_interfaces::msg::PoseCuaCommand>
+    latest_tcp_quaternion_;
+  std::optional<colab_supervision_interfaces::msg::Joints>
+    latest_robot_joints_;
 
   rclcpp::Time operator_state_received_time_;
   rclcpp::Time supervision_received_time_;
   rclcpp::Time trajectory_received_time_;
+  rclcpp::Time tcp_euler_received_time_;
+  rclcpp::Time tcp_quaternion_received_time_;
+  rclcpp::Time robot_joints_received_time_;
 
   // ==========================================================================
   // ACTIVE PLAN STATE
@@ -350,6 +425,9 @@ private:
   // A restart/unlock command is required only after the system has been
   // paused, blocked or stopped. It is cleared when Sock_Reinicio is published.
   bool restart_required_{false};
+  bool pause_pulse_sent_{false};
+  bool block_pulse_sent_{false};
+  bool stop_pulse_sent_{false};
 
   // Last speed actually sent to the parser. A new VelMax command is emitted
   // only when the requested value changes by the configured threshold.
@@ -359,6 +437,21 @@ private:
   // message being received again.
   std::string last_trajectory_signature_;
   std::uint64_t trajectory_generation_{0};
+  bool latest_trajectory_is_commander_feedback_{false};
+  bool commander_feedback_expected_{false};
+  rclcpp::Time commander_feedback_deadline_;
+  std::string last_commander_sent_trajectory_signature_;
+  std::string last_interes_trajectory_signature_;
+
+  struct QueuedCommand
+  {
+    DecisionResult command;
+    std::chrono::steady_clock::time_point enqueued_at;
+  };
+
+  std::deque<QueuedCommand> command_queue_;
+  bool socket_ready_{false};
+  bool command_in_flight_{false};
 };
 
 }  // namespace colab_supervision_control
