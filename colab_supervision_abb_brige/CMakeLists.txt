@@ -24,9 +24,26 @@ ament_target_dependencies(command_bridge
   colab_supervision_interfaces
 )
 
+add_executable(tcp_pose_parser src/tcp_pose_parser.cpp)
+ament_target_dependencies(tcp_pose_parser
+  rclcpp
+  std_msgs
+  colab_supervision_interfaces
+)
+
+target_include_directories(tcp_pose_parser PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+
 install(
-  TARGETS tcp_socket_node command_bridge
+  TARGETS tcp_socket_node command_bridge tcp_pose_parser
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include
 )
 
 ament_package()

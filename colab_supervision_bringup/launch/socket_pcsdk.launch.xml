@@ -39,6 +39,11 @@
         description="Topic de recepcion desde el socket TCP"
     />
 
+    <arg 
+        name="cartesian_path" 
+        default="false" 
+        description="Indica si se está utilizando una trayectoria cartesiana"/>
+
 
     <!-- ============================================================
          NODO TCP SOCKET
@@ -93,6 +98,17 @@
             value="$(var tcp_send_topic)"
         />
 
+    </node>
+
+    <node pkg="colab_supervision_abb_brige"
+        exec="tcp_pose_parser"
+        name="tcp_pose_parser"
+        output="screen">
+        
+        <param 
+            name="cartesian_path" 
+            value="$(var cartesian_path)"
+        />
     </node>
 
 </launch>
