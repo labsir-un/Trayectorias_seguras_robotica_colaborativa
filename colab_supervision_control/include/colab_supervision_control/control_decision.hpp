@@ -20,6 +20,7 @@
 
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 
 namespace colab_supervision_control
 {
@@ -63,6 +64,22 @@ private:
     NORMAL_OPERATION,
     UNKNOWN
   };
+
+  // ==========================================================================
+  // TRAJECTORY CHANGE PROTOCOL
+  // ==========================================================================
+
+  enum class ProtocolStage
+  {
+    NONE,
+    EXIT_WAIT_TCP_INITIAL,
+    EXIT_WAIT_TCP_AFTER_MOVE,
+    EXIT_WAIT_COMMANDER_TRAJECTORY,
+    SAFE_WAIT,
+    RECOVERY_WAIT_TCP,
+    RECOVERY_WAIT_MOTION
+  };
+
 
   // ==========================================================================
   // COMMAND REPRESENTATION
@@ -110,6 +127,24 @@ private:
     const colab_supervision_interfaces::msg::PoseCuaCommand::SharedPtr msg);
   void robot_joints_callback(
     const colab_supervision_interfaces::msg::Joints::SharedPtr msg);
+
+  // ==========================================================================
+  // TRAJECTORY CHANGE PROTOCOLS
+  // ==========================================================================
+
+  bool safety_exit_condition() const;
+  bool zone5_recovered() const;
+  void start_exit_protocol();
+  void continue_exit_protocol_from_tcp();
+  void start_recovery_protocol();
+  void continue_recovery_protocol_from_tcp();
+  void handle_commander_trajectory_for_exit(
+    const moveit_msgs::msg::RobotTrajectory & trajectory);
+  void publish_safe_posture_name_from_tcp();
+  void enqueue_protocol_command(const DecisionResult & command);
+  DecisionResult make_set_offsets_value(
+    const std::string & offsets,
+    const std::string & reason) const;
 
   // ==========================================================================
   // MAIN DECISION LOOP
@@ -289,6 +324,7 @@ private:
   std::string commander_euler_topic_;
   std::string commander_quaternion_topic_;
   std::string commander_joint_topic_;
+  std::string name_command_topic_;
 
   double decision_rate_hz_;
   double max_input_age_sec_;
@@ -383,6 +419,8 @@ private:
   rclcpp::Publisher<
     colab_supervision_interfaces::msg::Joints>::SharedPtr
     commander_joint_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr
+    name_command_pub_;
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
 
@@ -450,8 +488,29 @@ private:
   };
 
   std::deque<QueuedCommand> command_queue_;
-  bool socket_ready_{false};
+  bool socket_ready_{true};
   bool command_in_flight_{false};
+
+  // ==========================================================================
+  // TRAJECTORY CHANGE PROTOCOL STATE
+  // ==========================================================================
+
+  ProtocolStage protocol_stage_{ProtocolStage::NONE};
+  bool protocol_active_{false};
+  bool tcp_request_pending_{false};
+  bool tcp_salida_valid_{false};
+  bool commander_safe_posture_requested_{false};
+  rclcpp::Time tcp_request_time_;
+
+  colab_supervision_interfaces::msg::PoseCuaCommand tcp_salida_{};
+
+  // Fixed offsets defined by the trajectory-change protocol.
+  static constexpr double kTcpZThreshold = 0.402;
+  static constexpr const char * kOffsetDown = "[0,0,-20]";
+  static constexpr const char * kOffsetApproach = "[10,0,-20]";
+  static constexpr const char * kOffsetZero = "[0,0,0]";
+  static constexpr const char * kSafePosturePositiveY = "PosSeguraYPos";
+  static constexpr const char * kSafePostureNegativeY = "PosSeguraYNeg";
 };
 
 }  // namespace colab_supervision_control

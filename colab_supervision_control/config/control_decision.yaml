@@ -18,6 +18,7 @@ control_decision:
     commander_euler_topic: "/pose_command"
     commander_quaternion_topic: "/posecua_command"
     commander_joint_topic: "/joint_command"
+    name_command_topic: "name_command"
 
     # ========================================================================
     # DECISION LOOP
@@ -135,12 +136,48 @@ control_decision:
     command_queue_capacity: 20
     command_queue_ttl_sec: 60.0
 
-    # IMPORTANT:
-    # Leave empty until the final [x,y,z] values are defined.
-    # While empty, PRIORITY 4 fails safe to Sock_Pausa and does NOT send
-    # SetOffsets with a fabricated zero offset.
+    # Legacy configurable offset used by the generic INCREASE_DISTANCE action.
+    # The explicit trajectory-change protocols use the fixed offsets defined
+    # below and do not depend on this parameter.
     set_offsets_value: ""
 
-    # Reserved for a future safe-posture action.
+    # ========================================================================
+    # EXPLICIT TRAJECTORY CHANGE PROTOCOL
+    # ========================================================================
+    #
+    # Exit protocol:
+    #   Sock_Bloquear
+    #   GuardarPSalida
+    #   Interes
+    #   GetPostura/TCPTCPCua
+    #
+    #   Z_salida > 0.402 m:
+    #     SetOffsets [0,0,-20] -> MoveLinear
+    #
+    #   Z_salida <= 0.402 m:
+    #     SetOffsets [0,0,-20] -> MoveLinear
+    #     SetOffsets [10,0,-20] -> MoveJoint
+    #     GetPostura/TCPTCPCua
+    #     publish PosSeguraYPos or PosSeguraYNeg to name_command
+    #     Commander trajectory rad -> deg -> JoinConf
+    #
+    # Recovery protocol when Zone 5 is recovered:
+    #   GetPostura/TCPTCPCua
+    #
+    #   Z_salida > 0.402 m:
+    #     SetOffsets [0,0,-20] -> MoveLinear
+    #
+    #   Z_salida <= 0.402 m:
+    #     SetOffsets [10,0,-20] -> MoveJoint
+    #     SetOffsets [0,0,-20] -> MoveLinear
+    #
+    #   robtargetL/p_salida_guardado
+    #   SetOffsets [0,0,0]
+    #   Variable/SET/Sock_Reinicio/TRUE
+    #
+    # JoinConf always receives ABB joint angles in degrees.
+    # ========================================================================
+
+    # Kept for compatibility with the generic command builders.
     safe_posture_joint_point: ""
     safe_posture_linear_point: ""

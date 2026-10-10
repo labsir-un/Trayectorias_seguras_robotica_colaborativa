@@ -55,6 +55,9 @@ ControlDecision::ControlDecision()
   commander_joint_topic_ = declare_parameter<std::string>(
     "commander_joint_topic", "/joint_command");
 
+  name_command_topic_ = declare_parameter<std::string>(
+    "name_command_topic", "name_command");
+
   // --------------------------------------------------------------------------
   // DECISION TIMING
   // --------------------------------------------------------------------------
@@ -367,6 +370,8 @@ ControlDecision::ControlDecision()
     commander_quaternion_topic_, 10);
   commander_joint_pub_ = create_publisher<colab_supervision_interfaces::msg::Joints>(
     commander_joint_topic_, 10);
+  name_command_pub_ = create_publisher<std_msgs::msg::String>(
+    name_command_topic_, 10);
 
   // --------------------------------------------------------------------------
   // DECISION TIMER
@@ -396,6 +401,7 @@ ControlDecision::ControlDecision()
     tcp_quaternion_topic_.c_str(), commander_quaternion_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Robot joints: %s | queue=%d | TTL=%.1f s",
     robot_joints_topic_.c_str(), command_queue_capacity_, command_queue_ttl_sec_);
+  RCLCPP_INFO(get_logger(), "Safe posture name command: %s", name_command_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Joint endpoint similarity tolerance: %.2f%%",
     joint_similarity_tolerance_percent_);
   RCLCPP_INFO(
@@ -480,6 +486,10 @@ void ControlDecision::trajectory_callback(
     RCLCPP_WARN(get_logger(),
       "Received MoveIt trajectory but cannot compare its endpoint yet: valid trajectory or fresh /SockRes/Joints unavailable.");
   }
+
+  if (protocol_active_ && protocol_stage_ == ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY) {
+    handle_commander_trajectory_for_exit(*msg);
+  }
 }
 
 void ControlDecision::socket_ready_callback(const std_msgs::msg::Bool::SharedPtr msg)
@@ -506,6 +516,25 @@ void ControlDecision::tcp_quaternion_callback(
 {
   latest_tcp_quaternion_ = *msg;
   tcp_quaternion_received_time_ = get_clock()->now();
+
+  // A TCP response is consumed by the active trajectory-change protocol only
+  // after the corresponding GetPostura/Prototipo/TCPTCPCua command was sent.
+  if (protocol_active_ && tcp_request_pending_) {
+    tcp_request_pending_ = false;
+
+    if (protocol_stage_ == ProtocolStage::EXIT_WAIT_TCP_INITIAL) {
+      tcp_salida_ = *msg;
+      tcp_salida_valid_ = true;
+      continue_exit_protocol_from_tcp();
+    } else if (protocol_stage_ == ProtocolStage::EXIT_WAIT_TCP_AFTER_MOVE) {
+      // The first response was saved as TCP_salida. This second response is
+      // the updated TCP after the approach movement and is sent to Commander.
+      latest_tcp_quaternion_ = *msg;
+      publish_safe_posture_name_from_tcp();
+    } else if (protocol_stage_ == ProtocolStage::RECOVERY_WAIT_TCP) {
+      continue_recovery_protocol_from_tcp();
+    }
+  }
 }
 
 void ControlDecision::robot_joints_callback(
@@ -532,6 +561,30 @@ void ControlDecision::robot_joints_callback(
 void ControlDecision::decision_timer_callback()
 {
   purge_expired_commands();
+
+  // Once a trajectory-change protocol starts, it owns the command sequence.
+  // The ordinary decision hierarchy must not overwrite it.
+  if (protocol_active_) {
+    if (protocol_stage_ == ProtocolStage::SAFE_WAIT && zone5_recovered()) {
+      start_recovery_protocol();
+    }
+
+    if (socket_ready_ && !command_in_flight_) {
+      dispatch_next_command();
+    }
+    return;
+  }
+
+  // A safety-stop condition that occurs while a nominal MoveIt trajectory is
+  // actually in progress is handled by the explicit exit protocol.
+  if (safety_exit_condition()) {
+    start_exit_protocol();
+    if (socket_ready_ && !command_in_flight_) {
+      dispatch_next_command();
+    }
+    return;
+  }
+
   const DecisionPlan plan = evaluate_decision();
 
   // Plans are edge-triggered: enqueue their sequence once, not on each timer
@@ -1040,6 +1093,18 @@ ControlDecision::DecisionResult ControlDecision::make_set_offsets(
     reason};
 }
 
+ControlDecision::DecisionResult ControlDecision::make_set_offsets_value(
+  const std::string & offsets,
+  const std::string & reason) const
+{
+  return {
+    "Distancia",
+    "CambiarTrayectoria",
+    "SetOffsets",
+    offsets,
+    reason};
+}
+
 ControlDecision::DecisionResult ControlDecision::make_save_exit_point(
   const std::string & reason) const
 {
@@ -1297,6 +1362,364 @@ ControlDecision::DecisionPlan ControlDecision::make_fail_safe_plan(
 }
 
 // ============================================================================
+
+// ============================================================================
+// TRAJECTORY CHANGE PROTOCOLS
+// ============================================================================
+
+bool ControlDecision::safety_exit_condition() const
+{
+  if (protocol_active_ || !trajectory_available() || !trajectory_requires_motion()) {
+    return false;
+  }
+
+  if (!latest_supervision_.has_value()) {
+    return false;
+  }
+
+  const auto & supervision = *latest_supervision_;
+  if (!supervision.interaction_valid || !supervision.distance_valid) {
+    return false;
+  }
+
+  const double distance = static_cast<double>(supervision.distance);
+  const Zone zone = determine_zone(distance);
+
+  // These are the same conditions that previously generated SAFE_STOP. They
+  // now enter the explicit trajectory-exit protocol when a nominal trajectory
+  // is actually in progress.
+  return (
+    (zone == Zone::Z3 && operator_is_available()) ||
+    ((zone == Zone::Z4 || zone == Zone::Z5) && collision_is_critical()));
+}
+
+bool ControlDecision::zone5_recovered() const
+{
+  if (!latest_supervision_.has_value() ||
+      !is_supervision_fresh() ||
+      !latest_supervision_->interaction_valid ||
+      !latest_supervision_->distance_valid)
+  {
+    return false;
+  }
+
+  const double distance = static_cast<double>(latest_supervision_->distance);
+  return determine_zone(distance) == Zone::Z5;
+}
+
+void ControlDecision::enqueue_protocol_command(const DecisionResult & command)
+{
+  enqueue_command(command, false);
+}
+
+void ControlDecision::start_exit_protocol()
+{
+  if (protocol_active_) {
+    return;
+  }
+
+  protocol_active_ = true;
+  protocol_stage_ = ProtocolStage::EXIT_WAIT_TCP_INITIAL;
+  tcp_request_pending_ = false;
+  tcp_salida_valid_ = false;
+  commander_safe_posture_requested_ = false;
+
+  // The protocol owns the pending command sequence. The command already in
+  // flight, if any, cannot be physically cancelled by the socket parser, but
+  // all commands waiting behind it are discarded so no stale trajectory step
+  // is sent.
+  command_queue_.clear();
+  plan_initialized_ = false;
+
+  RCLCPP_WARN(
+    get_logger(),
+    "START TRAJECTORY EXIT PROTOCOL: nominal trajectory interruption detected.");
+
+  enqueue_protocol_command(
+    make_variable_set(
+      "Sock_Bloquear",
+      "TRUE",
+      "EXIT PROTOCOL: block the nominal trajectory before changing points"));
+
+  enqueue_protocol_command(
+    make_save_exit_point(
+      "EXIT PROTOCOL: save the nominal trajectory interruption point as P_salida"));
+
+  enqueue_protocol_command(
+    make_update_interest(
+      "EXIT PROTOCOL: update the trajectory points before obtaining TCP_salida"));
+
+  enqueue_protocol_command(
+    make_get_tcp_quaternion(
+      "EXIT PROTOCOL: request TCP quaternion and store it as TCP_salida"));
+
+  RCLCPP_INFO(
+    get_logger(),
+    "EXIT PROTOCOL queued: Sock_Bloquear -> GuardarPSalida -> Interes -> TCPTCPCua");
+}
+
+void ControlDecision::continue_exit_protocol_from_tcp()
+{
+  if (!protocol_active_ || !tcp_salida_valid_) {
+    return;
+  }
+
+  const double z = tcp_salida_.pose.z;
+
+  // The socket TCP is expected in millimetres, so only the comparison is
+  // converted to metres. The sign/axis decision itself is independent of the
+  // unit because the configured threshold is explicitly 0.402 m.
+  const double z_m = z * tcp_position_scale_to_commander_;
+
+  command_queue_.clear();
+
+  if (z_m > kTcpZThreshold) {
+    // Direct vertical retreat.
+    enqueue_protocol_command(
+      make_set_offsets_value(
+        kOffsetDown,
+        "EXIT PROTOCOL: TCP_salida Z > 0.402 m; apply vertical -20 mm offset"));
+
+    enqueue_protocol_command(
+      make_move_temp(
+        "MoveLinear",
+        "EXIT PROTOCOL: TCP_salida Z > 0.402 m; execute linear retreat"));
+
+    protocol_stage_ = ProtocolStage::SAFE_WAIT;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "EXIT PROTOCOL: Z_salida=%.4f m > %.3f m -> SetOffsets %s + MoveLinear",
+      z_m, kTcpZThreshold, kOffsetDown);
+    return;
+  }
+
+  // Low TCP position: first move vertically, then make the additional joint
+  // approach. After the second move, obtain the new TCP and send it to
+  // Commander to select the corresponding safe posture.
+  enqueue_protocol_command(
+    make_set_offsets_value(
+      kOffsetDown,
+      "EXIT PROTOCOL: TCP_salida Z <= 0.402 m; first vertical retreat"));
+
+  enqueue_protocol_command(
+    make_move_temp(
+      "MoveLinear",
+      "EXIT PROTOCOL: TCP_salida Z <= 0.402 m; execute first linear retreat"));
+
+  enqueue_protocol_command(
+    make_set_offsets_value(
+      kOffsetApproach,
+      "EXIT PROTOCOL: TCP_salida Z <= 0.402 m; apply additional [10,0,-20] offset"));
+
+  enqueue_protocol_command(
+    make_move_temp(
+      "MoveJoint",
+      "EXIT PROTOCOL: TCP_salida Z <= 0.402 m; execute joint approach"));
+
+  enqueue_protocol_command(
+    make_get_tcp_quaternion(
+      "EXIT PROTOCOL: request updated TCP after the joint approach"));
+
+  protocol_stage_ = ProtocolStage::EXIT_WAIT_TCP_AFTER_MOVE;
+
+  RCLCPP_INFO(
+    get_logger(),
+    "EXIT PROTOCOL: Z_salida=%.4f m <= %.3f m -> %s + MoveLinear, then %s + MoveJoint, then updated TCP",
+    z_m, kTcpZThreshold, kOffsetDown, kOffsetApproach);
+}
+
+void ControlDecision::publish_safe_posture_name_from_tcp()
+{
+  if (!protocol_active_ ||
+      protocol_stage_ != ProtocolStage::EXIT_WAIT_TCP_AFTER_MOVE ||
+      !latest_tcp_quaternion_.has_value())
+  {
+    return;
+  }
+
+  const auto & tcp = *latest_tcp_quaternion_;
+  const double y = tcp.pose.y;
+
+  std_msgs::msg::String msg;
+
+  if (y > 0.0) {
+    msg.data = kSafePosturePositiveY;
+  } else if (y < 0.0) {
+    msg.data = kSafePostureNegativeY;
+  } else {
+    RCLCPP_ERROR(
+      get_logger(),
+      "EXIT PROTOCOL: updated TCP Y is exactly zero; safe posture cannot be selected.");
+    protocol_stage_ = ProtocolStage::SAFE_WAIT;
+    return;
+  }
+
+  commander_safe_posture_requested_ = true;
+  protocol_stage_ = ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY;
+
+  name_command_pub_->publish(msg);
+
+  RCLCPP_INFO(
+    get_logger(),
+    "EXIT PROTOCOL: updated TCP Y=%.3f -> Commander posture '%s' published on %s",
+    y, msg.data.c_str(), name_command_topic_.c_str());
+}
+
+void ControlDecision::handle_commander_trajectory_for_exit(
+  const moveit_msgs::msg::RobotTrajectory & trajectory)
+{
+  if (!protocol_active_ ||
+      protocol_stage_ != ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY)
+  {
+    return;
+  }
+
+  if (trajectory.joint_trajectory.points.empty() ||
+      trajectory.joint_trajectory.joint_names.empty())
+  {
+    RCLCPP_ERROR(
+      get_logger(),
+      "EXIT PROTOCOL: Commander returned an empty trajectory; keeping system in safe wait.");
+    protocol_stage_ = ProtocolStage::SAFE_WAIT;
+    return;
+  }
+
+  const auto & endpoint = trajectory.joint_trajectory.points.back().positions;
+  if (endpoint.size() != trajectory.joint_trajectory.joint_names.size() ||
+      endpoint.size() != 6U)
+  {
+    RCLCPP_ERROR(
+      get_logger(),
+      "EXIT PROTOCOL: Commander trajectory endpoint has %zu joints; expected 6.",
+      endpoint.size());
+    protocol_stage_ = ProtocolStage::SAFE_WAIT;
+    return;
+  }
+
+  // MoveIt/Commander joint trajectories are in radians. The socket command
+  // JoinConf expects ABB joint values in degrees.
+  constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
+  std::vector<double> joints_deg;
+  joints_deg.reserve(endpoint.size());
+
+  for (const double joint_rad : endpoint) {
+    if (!std::isfinite(joint_rad)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "EXIT PROTOCOL: Commander trajectory contains a non-finite joint value.");
+      protocol_stage_ = ProtocolStage::SAFE_WAIT;
+      return;
+    }
+    joints_deg.push_back(joint_rad * kRadToDeg);
+  }
+
+  enqueue_protocol_command(
+    make_joint_configuration(
+      joints_deg,
+      "EXIT PROTOCOL: Commander safe posture converted from radians to degrees for JoinConf"));
+
+  protocol_stage_ = ProtocolStage::SAFE_WAIT;
+
+  RCLCPP_INFO(
+    get_logger(),
+    "EXIT PROTOCOL: Commander trajectory received; endpoint converted rad->deg and queued as JoinConf.");
+}
+
+void ControlDecision::start_recovery_protocol()
+{
+  if (!protocol_active_ ||
+      protocol_stage_ != ProtocolStage::SAFE_WAIT ||
+      !tcp_salida_valid_)
+  {
+    return;
+  }
+
+  protocol_stage_ = ProtocolStage::RECOVERY_WAIT_TCP;
+  tcp_request_pending_ = false;
+  command_queue_.clear();
+
+  enqueue_protocol_command(
+    make_get_tcp_quaternion(
+      "RECOVERY PROTOCOL: request current TCP quaternion before returning to P_salida"));
+
+  RCLCPP_INFO(
+    get_logger(),
+    "START RECOVERY PROTOCOL: Zone 5 recovered; requesting current TCP.");
+}
+
+void ControlDecision::continue_recovery_protocol_from_tcp()
+{
+  if (!protocol_active_ ||
+      protocol_stage_ != ProtocolStage::RECOVERY_WAIT_TCP ||
+      !tcp_salida_valid_)
+  {
+    return;
+  }
+
+  // The recovery branch is deliberately based on the TCP captured at the
+  // moment of trajectory interruption, not on the current TCP response.
+  const double z_m = tcp_salida_.pose.z * tcp_position_scale_to_commander_;
+
+  command_queue_.clear();
+
+  if (z_m > kTcpZThreshold) {
+    enqueue_protocol_command(
+      make_set_offsets_value(
+        kOffsetDown,
+        "RECOVERY PROTOCOL: TCP_salida Z > 0.402 m; apply [0,0,-20]"));
+
+    enqueue_protocol_command(
+      make_move_temp(
+        "MoveLinear",
+        "RECOVERY PROTOCOL: TCP_salida Z > 0.402 m; execute linear recovery approach"));
+  } else {
+    // Required two-stage recovery for Z <= 0.402 m.
+    enqueue_protocol_command(
+      make_set_offsets_value(
+        kOffsetApproach,
+        "RECOVERY PROTOCOL: TCP_salida Z <= 0.402 m; apply [10,0,-20]"));
+
+    enqueue_protocol_command(
+      make_move_temp(
+        "MoveJoint",
+        "RECOVERY PROTOCOL: TCP_salida Z <= 0.402 m; execute joint recovery approach"));
+
+    enqueue_protocol_command(
+      make_set_offsets_value(
+        kOffsetDown,
+        "RECOVERY PROTOCOL: TCP_salida Z <= 0.402 m; then apply [0,0,-20]"));
+
+    enqueue_protocol_command(
+      make_move_temp(
+        "MoveLinear",
+        "RECOVERY PROTOCOL: TCP_salida Z <= 0.402 m; then execute linear recovery approach"));
+  }
+
+  enqueue_protocol_command(
+    make_safe_posture_linear(
+      "p_salida_guardado",
+      "RECOVERY PROTOCOL: return to the saved nominal trajectory point"));
+
+  enqueue_protocol_command(
+    make_set_offsets_value(
+      kOffsetZero,
+      "RECOVERY PROTOCOL: restore trajectory offsets to zero"));
+
+  enqueue_protocol_command(
+    make_variable_set(
+      "Sock_Reinicio",
+      "TRUE",
+      "RECOVERY PROTOCOL: release the trajectory block and permit restart"));
+
+  protocol_stage_ = ProtocolStage::RECOVERY_WAIT_MOTION;
+
+  RCLCPP_INFO(
+    get_logger(),
+    "RECOVERY PROTOCOL queued for Z_salida=%.4f m; offsets restored and Sock_Reinicio will be sent at the end.",
+    z_m);
+}
+
 // MAIN DECISION HIERARCHY
 // ============================================================================
 
@@ -1622,7 +2045,28 @@ void ControlDecision::dispatch_next_command()
       pause_pulse_sent_ = false;
       block_pulse_sent_ = false;
       stop_pulse_sent_ = false;
+
+      if (protocol_active_ && protocol_stage_ == ProtocolStage::RECOVERY_WAIT_MOTION) {
+        protocol_active_ = false;
+        protocol_stage_ = ProtocolStage::NONE;
+        tcp_request_pending_ = false;
+        commander_safe_posture_requested_ = false;
+        RCLCPP_INFO(
+          get_logger(),
+          "RECOVERY PROTOCOL completed: Sock_Reinicio sent; nominal operation may resume.");
+      }
     }
+  }
+
+  if (
+    msg.command == "Distancia" &&
+    msg.object == "GetPostura" &&
+    msg.variable == "Prototipo" &&
+    msg.value == "TCPTCPCua" &&
+    protocol_active_)
+  {
+    tcp_request_pending_ = true;
+    tcp_request_time_ = get_clock()->now();
   }
 
   if (msg.command == "Velocidad" && msg.object == "Porcentaje" && msg.variable == "VelMax") {

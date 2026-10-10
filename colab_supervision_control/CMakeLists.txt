@@ -76,6 +76,7 @@ add_executable(
 ament_target_dependencies(
   control_decision
   rclcpp
+  std_msgs
   moveit_msgs
   colab_supervision_interfaces
 )
