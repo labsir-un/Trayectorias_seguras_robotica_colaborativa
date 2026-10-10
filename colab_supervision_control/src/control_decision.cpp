@@ -126,6 +126,12 @@ ControlDecision::ControlDecision()
     "speed_change_threshold_percent",
     3.0);
 
+  // At most one VelMax command is sent during this interval. Pending speed
+  // updates may still be coalesced in the queue while waiting.
+  speed_command_min_interval_sec_ = declare_parameter<double>(
+    "speed_command_min_interval_sec",
+    15.0);
+
   // Medium fatigue applies an additional multiplier to the distance-based
   // speed profile. A value of 0.70 means the profile speed is reduced by 30%.
   // LOW fatigue keeps the profile at 100%, while HIGH fatigue is handled by
@@ -294,6 +300,11 @@ ControlDecision::ControlDecision()
       "speed_change_threshold_percent must be non-negative");
   }
 
+  if (speed_command_min_interval_sec_ < 0.0) {
+    throw std::invalid_argument(
+      "speed_command_min_interval_sec must be non-negative");
+  }
+
   if (fatigue_medium_speed_factor_ < 0.0 ||
       fatigue_medium_speed_factor_ > 1.0) {
     throw std::invalid_argument(
@@ -399,8 +410,10 @@ ControlDecision::ControlDecision()
     tcp_euler_topic_.c_str(), commander_euler_topic_.c_str());
   RCLCPP_INFO(get_logger(), "TCP quaternion input: %s -> Commander %s",
     tcp_quaternion_topic_.c_str(), commander_quaternion_topic_.c_str());
-  RCLCPP_INFO(get_logger(), "Robot joints: %s | queue=%d | TTL=%.1f s",
-    robot_joints_topic_.c_str(), command_queue_capacity_, command_queue_ttl_sec_);
+  RCLCPP_INFO(get_logger(),
+    "Robot joints: %s | queue=%d | TTL=%.1f s | VelMax tolerance=%.0f points | VelMax min interval=%.1f s",
+    robot_joints_topic_.c_str(), command_queue_capacity_, command_queue_ttl_sec_,
+    speed_change_threshold_percent_, speed_command_min_interval_sec_);
   RCLCPP_INFO(get_logger(), "Safe posture name command: %s", name_command_topic_.c_str());
   RCLCPP_INFO(get_logger(), "Joint endpoint similarity tolerance: %.2f%%",
     joint_similarity_tolerance_percent_);
@@ -989,28 +1002,139 @@ int ControlDecision::compute_effective_speed_percent(double distance) const
     std::clamp(effective_speed, 0.0, full_speed_percent_)));
 }
 
+std::optional<int> ControlDecision::pending_speed_percent() const
+{
+  for (const auto & queued : command_queue_) {
+    const auto & command = queued.command;
+    if (
+      command.command == "Velocidad" &&
+      command.object == "Porcentaje" &&
+      command.variable == "VelMax")
+    {
+      try {
+        return std::stoi(command.value);
+      } catch (const std::exception &) {
+        return std::nullopt;
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
 bool ControlDecision::speed_change_requires_command(
   int desired_speed_percent) const
 {
-  if (!last_commanded_speed_percent_.has_value()) {
+  // The tolerance is expressed in percentage points, because VelMax itself is
+  // expressed as a percentage. With the default value 3.0:
+  //
+  //   50 -> [47, 53] is accepted without a new command
+  //   46 or 54 requires a new command
+  //
+  // A pending speed in the queue is the current reference because it is the
+  // latest requested value that has not been sent yet. Otherwise, compare with
+  // the last value actually sent to the socket.
+  const auto pending = pending_speed_percent();
+  const std::optional<int> reference =
+    pending.has_value() ? pending : last_commanded_speed_percent_;
+
+  if (!reference.has_value()) {
     return true;
   }
 
-  return std::abs(
-           desired_speed_percent - *last_commanded_speed_percent_) >=
+  return std::abs(desired_speed_percent - *reference) >
          speed_change_threshold_percent_;
 }
 
 std::string ControlDecision::speed_signature(int desired_speed_percent) const
 {
+  const auto pending = pending_speed_percent();
+  if (pending.has_value()) {
+    if (std::abs(desired_speed_percent - *pending) <=
+        speed_change_threshold_percent_)
+    {
+      return std::to_string(*pending);
+    }
+  }
+
   if (speed_change_requires_command(desired_speed_percent)) {
     return std::to_string(desired_speed_percent);
   }
 
-  // Keep the plan signature stable while the requested speed moves inside the
-  // deadband. This avoids rebuilding the plan and sending other commands for
-  // every small fluctuation in distance.
-  return std::to_string(*last_commanded_speed_percent_);
+  if (last_commanded_speed_percent_.has_value()) {
+    return std::to_string(*last_commanded_speed_percent_);
+  }
+
+  return std::to_string(desired_speed_percent);
+}
+
+void ControlDecision::update_pending_speed_command(
+  int speed_percent,
+  const std::string & reason)
+{
+  purge_expired_commands();
+
+  const auto now = std::chrono::steady_clock::now();
+
+  for (auto & queued : command_queue_) {
+    auto & command = queued.command;
+    if (
+      command.command == "Velocidad" &&
+      command.object == "Porcentaje" &&
+      command.variable == "VelMax")
+    {
+      int queued_speed = 0;
+      try {
+        queued_speed = std::stoi(command.value);
+      } catch (const std::exception &) {
+        queued_speed = speed_percent;
+      }
+
+      if (std::abs(speed_percent - queued_speed) <=
+          speed_change_threshold_percent_)
+      {
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Ignoring VelMax=%d%%; pending VelMax=%d%% is within %.0f percentage points.",
+          speed_percent, queued_speed, speed_change_threshold_percent_);
+        return;
+      }
+
+      command = make_speed_percent(speed_percent, reason);
+      queued.enqueued_at = now;
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Updated pending VelMax command in queue: %d%% -> %d%%",
+        queued_speed, speed_percent);
+      return;
+    }
+  }
+
+  if (!speed_change_requires_command(speed_percent)) {
+    RCLCPP_DEBUG(
+      get_logger(),
+      "VelMax=%d%% is inside the configured %.0f-point tolerance; no queue entry created.",
+      speed_percent, speed_change_threshold_percent_);
+    return;
+  }
+
+  if (command_queue_.size() >= static_cast<std::size_t>(command_queue_capacity_)) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Socket command queue full; VelMax=%d%% was not queued.",
+      speed_percent);
+    return;
+  }
+
+  command_queue_.push_back({
+    make_speed_percent(speed_percent, reason),
+    now});
+
+  RCLCPP_INFO(
+    get_logger(),
+    "Queued VelMax=%d%% | tolerance=%.0f percentage points",
+    speed_percent, speed_change_threshold_percent_);
 }
 
 // ============================================================================
@@ -1799,12 +1923,33 @@ ControlDecision::DecisionPlan ControlDecision::evaluate_decision()
   }
 
   // --------------------------------------------------------------------------
-  // PRIORITY 3 - no valid MoveIt trajectory -> CONTROLLED PAUSE
+  // PRIORITY 3 - no MoveIt trajectory yet
   // --------------------------------------------------------------------------
-
+  // The velocity command must not depend on a previously generated trajectory.
+  // This avoids the circular dependency:
+  //
+  //   trajectory -> speed -> trajectory
+  //
+  // Instead, the current supervision state determines VelMax first. Commander
+  // can then generate the trajectory, and the resulting trajectory is later
+  // validated before Interes is sent.
   if (!trajectory_target_reachable()) {
+    const int speed = compute_effective_speed_percent(distance);
+
+    if (zone == Zone::Z4 || zone == Zone::Z5) {
+      return make_limit_speed_plan(
+        speed,
+        "PRIORITY 3: no valid MoveIt trajectory yet; queue VelMax first and wait for planning feedback");
+    }
+
+    if (zone == Zone::Z6) {
+      return make_normal_operation_plan(
+        speed,
+        "PRIORITY 3: no valid MoveIt trajectory yet; queue VelMax first and wait for planning feedback");
+    }
+
     return make_pause_plan(
-      "PRIORITY 3: valid MoveIt trajectory unavailable or invalid");
+      "PRIORITY 3: no valid MoveIt trajectory and current zone does not authorize motion");
   }
 
   // --------------------------------------------------------------------------
@@ -1877,9 +2022,32 @@ void ControlDecision::apply_plan(const DecisionPlan & plan)
     });
   const bool safety_action = plan.action == Action::EMERGENCY_STOP ||
     plan.action == Action::SAFE_STOP || plan.action == Action::PAUSE;
+
+  // If startup has not emitted any command yet, never discard an already
+  // queued VelMax merely because a safety condition appears. The first socket
+  // command must be non-safety; the safety pulse can follow it.
+  std::optional<QueuedCommand> startup_speed_command;
+  if (!first_command_sent_ && safety_action) {
+    for (const auto & queued : command_queue_) {
+      const auto & command = queued.command;
+      if (
+        command.command == "Velocidad" &&
+        command.object == "Porcentaje" &&
+        command.variable == "VelMax")
+      {
+        startup_speed_command = queued;
+        break;
+      }
+    }
+  }
+
   command_queue_.clear();
   if (pending_interest || safety_action) {
     last_interes_trajectory_signature_.clear();
+  }
+
+  if (startup_speed_command.has_value()) {
+    command_queue_.push_back(*startup_speed_command);
   }
 
 
@@ -1900,11 +2068,10 @@ void ControlDecision::apply_plan(const DecisionPlan & plan)
     active_plan_.action == Action::LIMIT_SPEED ||
     active_plan_.action == Action::NORMAL_OPERATION;
 
-  if (motion_permitted && trajectory_requires_motion() &&
-      !trajectory_is_current_feedback())
-  {
-    publish_cached_tcp_to_commander_once();
-  }
+  // Motion planning is started from dispatch_next_command() immediately after
+  // a VelMax command is actually published. This guarantees that the first
+  // operational command is the requested speed before Commander is asked to
+  // generate a trajectory.
 
   if (socket_ready_ && !command_in_flight_) {
     dispatch_next_command();
@@ -1927,9 +2094,33 @@ void ControlDecision::enqueue_plan_commands(const DecisionPlan & plan)
     }
 
     const auto size_before = command_queue_.size();
-    enqueue_command(command, false);
 
-    const bool enqueued = command_queue_.size() > size_before;
+    if (
+      command.command == "Velocidad" &&
+      command.object == "Porcentaje" &&
+      command.variable == "VelMax")
+    {
+      int speed_percent = 0;
+      try {
+        speed_percent = std::stoi(command.value);
+      } catch (const std::exception &) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Invalid VelMax value '%s'; command not queued.",
+          command.value.c_str());
+        continue;
+      }
+
+      update_pending_speed_command(speed_percent, command.reason);
+    } else {
+      enqueue_command(command, false);
+    }
+
+    const bool enqueued = command_queue_.size() > size_before ||
+      (command.command == "Velocidad" &&
+       command.object == "Porcentaje" &&
+       command.variable == "VelMax" &&
+       pending_speed_percent().has_value());
     if (enqueued && step.command.command == "Distancia" &&
         step.command.object == "CambiarTrayectoria" &&
         step.command.variable == "ActualizarPuntos" &&
@@ -2009,6 +2200,44 @@ void ControlDecision::dispatch_next_command()
     return;
   }
 
+  const auto & next = command_queue_.front().command;
+  const bool next_is_safety_pulse =
+    next.command == "Variable" &&
+    next.object == "SET" &&
+    next.value == "TRUE" &&
+    (next.variable == "Sock_Pausa" ||
+     next.variable == "Sock_Bloquear" ||
+     next.variable == "Sock_Parada");
+
+  if (next_is_safety_pulse && !first_command_sent_) {
+    RCLCPP_INFO(
+      get_logger(),
+      "Deferring first safety command %s/%s/%s/%s until a non-safety command has been sent.",
+      next.command.c_str(), next.object.c_str(),
+      next.variable.c_str(), next.value.c_str());
+    return;
+  }
+
+  const bool next_is_speed_command =
+    next.command == "Velocidad" &&
+    next.object == "Porcentaje" &&
+    next.variable == "VelMax";
+
+  if (next_is_speed_command && last_speed_command_time_.has_value()) {
+    const double elapsed =
+      (get_clock()->now() - *last_speed_command_time_).seconds();
+
+    if (elapsed < speed_command_min_interval_sec_) {
+      RCLCPP_DEBUG(
+        get_logger(),
+        "Deferring VelMax=%s%% for %.3f s; minimum interval is %.3f s.",
+        next.value.c_str(),
+        speed_command_min_interval_sec_ - elapsed,
+        speed_command_min_interval_sec_);
+      return;
+    }
+  }
+
   const auto queued = command_queue_.front();
   command_queue_.pop_front();
 
@@ -2029,6 +2258,19 @@ void ControlDecision::dispatch_next_command()
   socket_ready_ = false;
   command_in_flight_ = true;
   command_pub_->publish(msg);
+  first_command_sent_ = true;
+
+  if (msg.command == "Velocidad" &&
+      msg.object == "Porcentaje" &&
+      msg.variable == "VelMax")
+  {
+    // The speed command has now physically entered the socket path. Only now
+    // request Commander to generate a new trajectory when one is not already
+    // available for the current target.
+    if (!trajectory_is_current_feedback()) {
+      publish_cached_tcp_to_commander_once();
+    }
+  }
 
   if (msg.command == "Variable" && msg.object == "SET" && msg.value == "TRUE") {
     if (msg.variable == "Sock_Pausa") {
@@ -2072,6 +2314,7 @@ void ControlDecision::dispatch_next_command()
   if (msg.command == "Velocidad" && msg.object == "Porcentaje" && msg.variable == "VelMax") {
     try {
       last_commanded_speed_percent_ = std::stoi(msg.value);
+      last_speed_command_time_ = get_clock()->now();
     } catch (const std::exception &) {
       RCLCPP_WARN(get_logger(), "Unable to store commanded speed '%s' as an integer", msg.value.c_str());
     }

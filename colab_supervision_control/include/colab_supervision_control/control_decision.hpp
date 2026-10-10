@@ -205,6 +205,13 @@ private:
   bool speed_change_requires_command(int desired_speed_percent) const;
   std::string speed_signature(int desired_speed_percent) const;
 
+  // Speed commands are coalesced inside the socket command queue so that
+  // obsolete VelMax values are never accumulated.
+  std::optional<int> pending_speed_percent() const;
+  void update_pending_speed_command(
+    int speed_percent,
+    const std::string & reason);
+
   // ==========================================================================
   // COMMAND BUILDERS - EXACT COMMAND GRAMMAR
   // ==========================================================================
@@ -345,7 +352,10 @@ private:
   double full_speed_percent_;
   double half_speed_percent_;
   double minimum_speed_percent_;
+  // Fixed tolerance in percentage points. Default: +/-3 points.
   double speed_change_threshold_percent_;
+  // Minimum interval between two VelMax commands actually sent to the socket.
+  double speed_command_min_interval_sec_;
   double fatigue_medium_speed_factor_;
 
   // Operator conditions
@@ -468,8 +478,10 @@ private:
   bool stop_pulse_sent_{false};
 
   // Last speed actually sent to the parser. A new VelMax command is emitted
-  // only when the requested value changes by the configured threshold.
+  // only when the requested value changes by the configured number of
+  // percentage points.
   std::optional<int> last_commanded_speed_percent_;
+  std::optional<rclcpp::Time> last_speed_command_time_;
 
   // Used to distinguish genuinely new MoveIt plans from the same trajectory
   // message being received again.
@@ -490,6 +502,11 @@ private:
   std::deque<QueuedCommand> command_queue_;
   bool socket_ready_{true};
   bool command_in_flight_{false};
+
+  // A safety pulse (pause/block/stop) is never allowed to be the first
+  // command emitted after node startup. A non-safety command, such as the
+  // initial VelMax command, must be sent first.
+  bool first_command_sent_{false};
 
   // ==========================================================================
   // TRAJECTORY CHANGE PROTOCOL STATE

@@ -1,0 +1,35 @@
+<launch>
+
+  <node
+    pkg="colab_supervision_metrics"
+    exec="metrics_node"
+    name="metrics_node"
+    output="screen">
+
+    <param
+      name="interaction_topic"
+      value="/robot_operator_interaction" />
+
+    <param
+      name="supervision_topic"
+      value="/control/robot_operator_state" />
+
+    <param
+      name="operator_state_topic"
+      value="/operator/state_analisis" />
+
+    <param
+      name="command_topic"
+      value="/control/command" />
+
+    <param
+      name="trajectory_topic"
+      value="/control/trajectory" />
+
+    <param
+      name="metrics_topic"
+      value="/metrics/experimental" />
+
+  </node>
+
+</launch>

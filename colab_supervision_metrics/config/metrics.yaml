@@ -1,0 +1,50 @@
+metrics_node:
+  ros__parameters:
+
+    # --------------------------------------------------------------------------
+    # TOPICS
+    # --------------------------------------------------------------------------
+    interaction_topic: "/robot_operator_interaction"
+    supervision_topic: "/control/robot_operator_state"
+    operator_state_topic: "/operator/state_analisis"
+    command_topic: "/control/command"
+    trajectory_topic: "/control/trajectory"
+    metrics_topic: "/metrics/experimental"
+
+    # --------------------------------------------------------------------------
+    # EXECUTION
+    # --------------------------------------------------------------------------
+    publish_rate_hz: 10.0
+
+    # --------------------------------------------------------------------------
+    # PERCEPTION QUALITY
+    # --------------------------------------------------------------------------
+    quality_window_sec: 15.0
+    max_observation_age_sec: 0.50
+
+    # --------------------------------------------------------------------------
+    # STOP METRIC
+    # --------------------------------------------------------------------------
+    # Velocidad estimada del robot por RGB-D considerada como estado detenido.
+    stop_speed_threshold_mm_s: 5.0
+
+    # Tiempo mínimo que la velocidad debe permanecer por debajo del umbral.
+    stop_confirmation_time_sec: 0.30
+
+    # --------------------------------------------------------------------------
+    # ADAPTATION METRIC
+    # --------------------------------------------------------------------------
+    adaptation_timeout_sec: 30.0
+
+    # --------------------------------------------------------------------------
+    # TRAJECTORY FEASIBILITY
+    # --------------------------------------------------------------------------
+    # Umbral conservador usado para determinar si la trayectoria recibida
+    # puede considerarse compatible con la separación actual.
+    min_trajectory_distance_m: 0.400
+
+    # --------------------------------------------------------------------------
+    # CSV
+    # --------------------------------------------------------------------------
+    csv_enabled: true
+    csv_path: "metrics_experiment.csv"

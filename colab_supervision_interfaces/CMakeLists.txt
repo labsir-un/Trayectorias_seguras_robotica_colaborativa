@@ -13,6 +13,7 @@ find_package(geometry_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ControlCommand.msg"
+  "msg/ExperimentalMetrics.msg"
   "msg/Joints.msg"
   "msg/MultiArrayDimension.msg"
   "msg/MultiArrayLayout.msg"
