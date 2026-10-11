@@ -2,8 +2,8 @@
 
   <node
     pkg="colab_supervision_metrics"
-    exec="metrics_node"
-    name="metrics_node"
+    exec="metrics"
+    name="metrics"
     output="screen">
 
     <param

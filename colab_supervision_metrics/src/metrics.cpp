@@ -1,7 +1,10 @@
-#include "colab_supervision_metrics/metrics_node.hpp"
+#include "colab_supervision_metrics/metrics.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -11,7 +14,7 @@ namespace colab_supervision_metrics
 {
 
 MetricsNode::MetricsNode()
-: Node("metrics_node")
+: Node("metrics")
 {
   interaction_topic_ = declare_parameter<std::string>(
     "interaction_topic", "/robot_operator_interaction");
@@ -40,7 +43,7 @@ MetricsNode::MetricsNode()
 
   csv_enabled_ = declare_parameter<bool>("csv_enabled", true);
   csv_path_ = declare_parameter<std::string>(
-    "csv_path", "metrics_experiment.csv");
+    "csv_path", "metricas_experimentales");
 
   if (publish_rate_hz_ <= 0.0) {
     throw std::invalid_argument("publish_rate_hz must be > 0");
@@ -96,7 +99,7 @@ MetricsNode::MetricsNode()
       std::placeholders::_1));
 
   metrics_pub_ =
-    create_publisher<colab_supervision_metrics::msg::ExperimentalMetrics>(
+    create_publisher<colab_supervision_interfaces::msg::ExperimentalMetrics>(
     metrics_topic_,
     10);
 
@@ -109,12 +112,124 @@ MetricsNode::MetricsNode()
     std::bind(&MetricsNode::timer_callback, this));
 
   if (csv_enabled_) {
-    csv_file_.open(csv_path_, std::ios::out | std::ios::app);
-    if (!csv_file_.is_open()) {
-      RCLCPP_WARN(
+    try {
+      const char * ament_prefix_path = std::getenv("AMENT_PREFIX_PATH");
+
+      if (ament_prefix_path == nullptr) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "No se pudo determinar AMENT_PREFIX_PATH. "
+          "No se creará el archivo CSV.");
+        csv_enabled_ = false;
+      } else {
+        const std::string ament_paths(ament_prefix_path);
+        std::filesystem::path workspace_path;
+        std::filesystem::path first_prefix;
+
+        std::size_t start = 0;
+
+        while (start <= ament_paths.size()) {
+          const std::size_t separator = ament_paths.find(':', start);
+          const std::string prefix =
+            ament_paths.substr(
+            start,
+            separator == std::string::npos
+              ? std::string::npos
+              : separator - start);
+
+          if (!prefix.empty()) {
+            const std::filesystem::path prefix_path(prefix);
+
+            if (first_prefix.empty()) {
+              first_prefix = prefix_path;
+            }
+
+            const std::filesystem::path package_share =
+              prefix_path / "share" / "colab_supervision_metrics";
+
+            if (std::filesystem::exists(package_share)) {
+              workspace_path = prefix_path.parent_path();
+              break;
+            }
+          }
+
+          if (separator == std::string::npos) {
+            break;
+          }
+
+          start = separator + 1;
+        }
+
+        if (workspace_path.empty() && !first_prefix.empty()) {
+          workspace_path = first_prefix.parent_path();
+        }
+
+        if (workspace_path.empty()) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "No se pudo determinar el workspace de ROS 2.");
+          csv_enabled_ = false;
+        } else {
+          const std::filesystem::path metrics_directory =
+            workspace_path / "metricas_colaborativas";
+
+          std::filesystem::create_directories(metrics_directory);
+
+          std::filesystem::path configured_path(csv_path_);
+          std::string base_name = configured_path.stem().string();
+
+          if (base_name.empty()) {
+            base_name = "metricas_experimentales";
+          }
+
+          const auto system_now = std::chrono::system_clock::now();
+          const std::time_t system_time =
+            std::chrono::system_clock::to_time_t(system_now);
+
+          std::tm local_tm{};
+
+#ifdef _WIN32
+          localtime_s(&local_tm, &system_time);
+#else
+          localtime_r(&system_time, &local_tm);
+#endif
+
+          std::ostringstream timestamp;
+          timestamp << std::put_time(
+            &local_tm,
+            "%Y%m%d_%H%M%S");
+
+          const std::string filename =
+            base_name + "_" + timestamp.str() + ".csv";
+
+          const std::filesystem::path output_path =
+            metrics_directory / filename;
+
+          csv_path_ = output_path.string();
+
+          csv_file_.open(
+            csv_path_,
+            std::ios::out | std::ios::trunc);
+
+          if (!csv_file_.is_open()) {
+            RCLCPP_ERROR(
+              get_logger(),
+              "No se pudo crear el archivo CSV: %s",
+              csv_path_.c_str());
+            csv_enabled_ = false;
+          } else {
+            RCLCPP_INFO(
+              get_logger(),
+              "Archivo CSV de métricas creado: %s",
+              csv_path_.c_str());
+          }
+        }
+      }
+    } catch (const std::exception & error) {
+      RCLCPP_ERROR(
         get_logger(),
-        "No se pudo abrir CSV en '%s'. Se mantiene la publicación ROS.",
-        csv_path_.c_str());
+        "Error al crear el archivo CSV: %s",
+        error.what());
       csv_enabled_ = false;
     }
   }
@@ -486,7 +601,7 @@ bool MetricsNode::current_safety_state_is_compatible() const
 
 void MetricsNode::publish_metrics()
 {
-  colab_supervision_metrics::msg::ExperimentalMetrics msg;
+  colab_supervision_interfaces::msg::ExperimentalMetrics msg;
 
   const auto now = get_clock()->now();
   msg.header.stamp = now;
@@ -505,12 +620,12 @@ void MetricsNode::publish_metrics()
   msg.adaptation_time_ms = static_cast<float>(adaptation_time_ms_);
   msg.adaptation_time_valid = adaptation_time_valid_;
 
-  msg.perception_time_ms = 0.0F;
-  msg.perception_time_valid = false;
+  // Latencia de percepción:
+  // recepción del resultado - instante de adquisición contenido
+  // en la observación recibida.
+  perception_time_ms_ = 0.0;
+  perception_time_valid_ = false;
 
-  // No se inventa un tiempo interno de procesamiento de percepción:
-  // el mensaje de interacción contiene timestamp de adquisición, pero no
-  // timestamp de inicio/fin del procesamiento interno.
   if (latest_interaction_receive_time_.nanoseconds() > 0 &&
     latest_observation_.has_value())
   {
@@ -518,10 +633,15 @@ void MetricsNode::publish_metrics()
       (latest_interaction_receive_time_ - latest_observation_->time).seconds();
 
     if (latency >= 0.0 && std::isfinite(latency)) {
-      msg.perception_time_ms = static_cast<float>(latency * 1000.0);
-      msg.perception_time_valid = true;
+      perception_time_ms_ = latency * 1000.0;
+      perception_time_valid_ = true;
     }
   }
+
+  msg.perception_time_ms =
+    static_cast<float>(perception_time_ms_);
+  msg.perception_time_valid =
+    perception_time_valid_;
 
   msg.stop_time_ms = static_cast<float>(stop_time_ms_);
   msg.stop_time_valid = stop_time_valid_;
@@ -586,7 +706,7 @@ void MetricsNode::write_csv_row()
   csv_file_
     << std::fixed << std::setprecision(6)
     << now.seconds() << ","
-    << distance_or_mm << ","
+    << distance_or_mm_ << ","
     << distance_or_valid_ << ","
     << robot_speed_mm_s_ << ","
     << robot_speed_valid_ << ","
@@ -594,8 +714,8 @@ void MetricsNode::write_csv_row()
     << relative_position_variation_valid_ << ","
     << adaptation_time_ms_ << ","
     << adaptation_time_valid_ << ","
-    << "0.0" << ","
-    << "0" << ","
+    << perception_time_ms_ << ","
+    << perception_time_valid_ << ","
     << stop_time_ms_ << ","
     << stop_time_valid_ << ","
     << trajectory_feasible_ << ","
@@ -608,6 +728,13 @@ void MetricsNode::write_csv_row()
     << stop_active_ << "\n";
 
   csv_file_.flush();
+
+  if (!csv_file_.good()) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Error al escribir en el archivo CSV: %s",
+      csv_path_.c_str());
+  }
 }
 
 double MetricsNode::euclidean_distance(

@@ -22,6 +22,12 @@
         description="Topic consumido por control_supervisor"
     />
 
+    <arg
+        name="robot_operator_visualizar"
+        default="false"
+        description="Activa todas las visualizaciones de robot_operator_interaction"
+    />
+
     <arg 
         name="perception_operator_topic" 
         default="/state_operator" 
@@ -106,7 +112,7 @@
 
     <group if="$(var activar_metricas)">
 
-        <include file="$(find-pkg-share mi_paquete)/launch/metrics.launch.xml"/>
+        <include file="$(find-pkg-share colab_supervision_bringup)/launch/metrics.launch.xml"/>
 
     </group>
 

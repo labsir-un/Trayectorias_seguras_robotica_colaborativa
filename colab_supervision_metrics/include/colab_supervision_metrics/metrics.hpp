@@ -2,6 +2,7 @@
 #define COLAB_SUPERVISION_METRICS__METRICS_NODE_HPP_
 
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <fstream>
 #include <memory>
@@ -17,7 +18,7 @@
 #include "colab_supervision_interfaces/msg/robot_operator_interaction.hpp"
 #include "colab_supervision_interfaces/msg/robot_operator_supervision.hpp"
 
-#include "colab_supervision_metrics/msg/experimental_metrics.hpp"
+#include "colab_supervision_interfaces/msg/experimental_metrics.hpp"
 
 namespace colab_supervision_metrics
 {
@@ -117,7 +118,7 @@ private:
     moveit_msgs::msg::RobotTrajectory>::SharedPtr trajectory_sub_;
 
   rclcpp::Publisher<
-    colab_supervision_metrics::msg::ExperimentalMetrics>::SharedPtr metrics_pub_;
+    colab_supervision_interfaces::msg::ExperimentalMetrics>::SharedPtr metrics_pub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -146,6 +147,11 @@ private:
   rclcpp::Time adaptation_start_time_;
   double adaptation_time_ms_{0.0};
   bool adaptation_time_valid_{false};
+
+  // Perception latency
+  double perception_time_ms_{0.0};
+  bool perception_time_valid_{false};
+
   std::string last_adaptation_command_signature_;
   std::uint64_t trajectory_generation_{0};
   std::uint64_t trajectory_generation_at_adaptation_start_{0};

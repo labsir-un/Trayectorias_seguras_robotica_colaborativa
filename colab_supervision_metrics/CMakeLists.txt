@@ -13,11 +13,11 @@ find_package(std_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(colab_supervision_interfaces REQUIRED)
 
-add_executable(metrics_node
-  src/metrics_node.cpp
+add_executable(metrics
+  src/metrics.cpp
 )
 
-target_include_directories(metrics_node PUBLIC
+target_include_directories(metrics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -27,11 +27,6 @@ ament_target_dependencies(metrics
   std_msgs
   moveit_msgs
   colab_supervision_interfaces
-)
-
-rosidl_get_typesupport_target(cpp_typesupport_target
-  ${PROJECT_NAME}
-  "rosidl_typesupport_cpp"
 )
 
 target_link_libraries(metrics
