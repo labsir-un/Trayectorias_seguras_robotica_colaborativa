@@ -274,6 +274,38 @@ ros2 launch colab_supervision_bringup socket_pcsdk.launch.xml server_ip:="172.22
 
 ## Despliegue de escena completa
 
+Para el despliegue de la escena completa:
+
+1. En la celda verifique que se encuentren los cables de cámaras y de conexión al controlador del robot preparados.
+
+2. Inspeccione la herramienta y el estado actual del robot.
+
+3. Encienda el controlador y espere que cargue el sistema. Genere la calibración de contadores de ser necesario.
+
+4. Cambie a modo automático el controlador y haga la habilitación de motores.
+
+5. Genere las conexiones de las cámaras por medio de los USB como se indica en [Configuración para habilitar dispositivos conectador por USB](#configuración-para-habilitar-dispositivos-conectador-por-usb).
+
+6. Inicie el programa `AbbBrigeSocket`, seleccione su controlador fisico.
+
+7. En el flexpendant abra la HMI e inicie el programa.
+
+8. En la pantalla de inicio de la HMI de en `Conectar`, el robot quedara a la espera de que el despliegue de ROS este listo.
+
+9. Genere el despliegue de ROS usando el comando:
+
+```sh
+ros2 launch colab_supervision_bringup supervision_init.launch.xml server_ip:="172.22.112.1"
+```
+
+>[!NOTE]
+>Recuerde seguir las recomendaciones de pasos anteriores, en especial verificar puertos de conexión y dirección IP del servidor interno de WLS para que el despliegue sea adecuado.
+
+Si desea tomar las metricas del proceso utilice el comando
+
+```sh
+ros2 launch colab_supervision_bringup supervision_init.launch.xml server_ip:="172.22.112.1" activar_metricas:=true
+```
 
 ## Ejecución de operaciones
 
