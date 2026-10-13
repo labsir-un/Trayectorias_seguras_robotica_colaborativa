@@ -43,12 +43,12 @@ ControlSupervisor::ControlSupervisor()
 
   warning_history_size_ = declare_parameter<int>(
     "warning_history_size",
-    5
+    3
   );
 
   danger_persistent_frames_ = declare_parameter<int>(
     "danger_persistent_frames",
-    5
+    3
   );
 
   retain_last_valid_interaction_ = declare_parameter<bool>(

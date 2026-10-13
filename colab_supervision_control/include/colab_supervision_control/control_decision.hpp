@@ -151,6 +151,7 @@ private:
   // ===========================================================================
 
   void decision_timer_callback();
+  void speed_timer_callback();
   DecisionPlan evaluate_decision();
 
   // ==========================================================================
@@ -203,13 +204,8 @@ private:
   int compute_effective_speed_percent(double distance) const;
   double fatigue_speed_factor() const;
   bool speed_change_requires_command(int desired_speed_percent) const;
-  std::string speed_signature(int desired_speed_percent) const;
-
-  // Speed commands are coalesced inside the socket command queue so that
-  // obsolete VelMax values are never accumulated.
-  std::optional<int> pending_speed_percent() const;
-  void update_pending_speed_command(
-    int speed_percent,
+  void publish_speed_if_required(
+    int desired_speed_percent,
     const std::string & reason);
 
   // ==========================================================================
@@ -354,8 +350,8 @@ private:
   double minimum_speed_percent_;
   // Fixed tolerance in percentage points. Default: +/-3 points.
   double speed_change_threshold_percent_;
-  // Minimum interval between two VelMax commands actually sent to the socket.
-  double speed_command_min_interval_sec_;
+  // Periodic VelMax evaluation rate. Default: 0.25 Hz (one evaluation every 4 s).
+  double speed_command_rate_hz_;
   double fatigue_medium_speed_factor_;
 
   // Operator conditions
@@ -433,6 +429,7 @@ private:
     name_command_pub_;
 
   rclcpp::TimerBase::SharedPtr decision_timer_;
+  rclcpp::TimerBase::SharedPtr speed_timer_;
 
   // ==========================================================================
   // LAST PROCESSED STATES
@@ -478,10 +475,8 @@ private:
   bool stop_pulse_sent_{false};
 
   // Last speed actually sent to the parser. A new VelMax command is emitted
-  // only when the requested value changes by the configured number of
-  // percentage points.
+  // only when the calculated value is outside the configured tolerance.
   std::optional<int> last_commanded_speed_percent_;
-  std::optional<rclcpp::Time> last_speed_command_time_;
 
   // Used to distinguish genuinely new MoveIt plans from the same trajectory
   // message being received again.

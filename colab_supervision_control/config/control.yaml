@@ -8,12 +8,12 @@ control_supervisor:
     supervision_topic: "/control/robot_operator_state"
 
     # Ventana temporal para detectar persistencia de WARNING
-    warning_history_size: 5
+    warning_history_size: 3
 
     # Número de muestras consecutivas DANGEROUS/CRITICAL para marcar
     # una condición persistente. Este indicador es informativo para
     # control_decision y no reemplaza el riesgo crítico actual.
-    danger_persistent_frames: 5
+    danger_persistent_frames: 3
 
     # Retención del último estado completo con distancia válida.
     #
