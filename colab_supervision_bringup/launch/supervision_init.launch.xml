@@ -56,6 +56,11 @@
             name="puerto_camara_rgb" 
             value="$(var puerto_camara_rgb)"
         />
+
+        <arg
+            name="rviz_custom_config"
+            value="false"
+        />
     </include>
 
     <!-- ============================================================ -->

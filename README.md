@@ -294,6 +294,9 @@ Para el despliegue de la escena completa:
 
 9. Genere el despliegue de ROS usando el comando:
 
+>[!CAUTION]
+>Cuando se generea la conexión con el socket el robot se movera a la postura de `transición`. Tenga cuidado si **NO** se encuentra en una zona segura antes de iniciar el sistema de supervisión.
+
 ```sh
 ros2 launch colab_supervision_bringup supervision_init.launch.xml server_ip:="172.22.112.1"
 ```
@@ -353,8 +356,6 @@ Además de los comandos para el operador.
 <div align="center">
     <img src="https://imgur.com/XzQvGXa.png" alt="HMI_proceso">
 </div>
-
-
 
 ## Agradecimientos
 

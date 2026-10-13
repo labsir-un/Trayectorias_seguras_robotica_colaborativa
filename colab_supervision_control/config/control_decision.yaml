@@ -25,7 +25,7 @@ control_decision:
     # ========================================================================
 
     decision_rate_hz: 10.0
-    max_input_age_sec: 0.50
+    max_input_age_sec: 1.50
     max_trajectory_age_sec: 2.0
     max_robot_joints_age_sec: 5.0
     max_tcp_state_age_sec: 5.0

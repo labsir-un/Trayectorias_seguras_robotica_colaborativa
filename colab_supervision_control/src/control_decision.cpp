@@ -68,7 +68,7 @@ ControlDecision::ControlDecision()
 
   max_input_age_sec_ = declare_parameter<double>(
     "max_input_age_sec",
-    0.50);
+    1.50);
 
   max_trajectory_age_sec_ = declare_parameter<double>(
     "max_trajectory_age_sec",
@@ -130,7 +130,7 @@ ControlDecision::ControlDecision()
   // updates may still be coalesced in the queue while waiting.
   speed_command_min_interval_sec_ = declare_parameter<double>(
     "speed_command_min_interval_sec",
-    15.0);
+    5.0);
 
   // Medium fatigue applies an additional multiplier to the distance-based
   // speed profile. A value of 0.70 means the profile speed is reduced by 30%.
