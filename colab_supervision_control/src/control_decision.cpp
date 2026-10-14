@@ -68,7 +68,7 @@ ControlDecision::ControlDecision()
 
   max_input_age_sec_ = declare_parameter<double>(
     "max_input_age_sec",
-    1.50);
+    3.0);
 
   max_trajectory_age_sec_ = declare_parameter<double>(
     "max_trajectory_age_sec",
@@ -492,9 +492,39 @@ void ControlDecision::trajectory_callback(
   }
 
   const std::string new_signature = trajectory_signature(*latest_trajectory_);
-  if (new_signature != last_trajectory_signature_) {
+  const bool is_new_trajectory = new_signature != last_trajectory_signature_;
+
+  if (is_new_trajectory) {
     last_trajectory_signature_ = new_signature;
     ++trajectory_generation_;
+  }
+
+  // A safety protocol may explicitly wait for a trajectory generated after
+  // the planning request. Never consume an old trajectory as the answer to
+  // that request.
+  if (
+    protocol_active_ &&
+    protocol_stage_ == ProtocolStage::WAITING_MOVEIT_PLAN)
+  {
+    if (!is_new_trajectory ||
+        trajectory_generation_ <= moveit_request_generation_)
+    {
+      RCLCPP_DEBUG(
+        get_logger(),
+        "WAITING_MOVEIT_PLAN: ignoring trajectory because it is not newer "
+        "than the trajectory present when planning was requested.");
+      return;
+    }
+
+    moveit_plan_waiting_ = false;
+
+    RCLCPP_INFO(
+      get_logger(),
+      "WAITING_MOVEIT_PLAN: new MoveIt trajectory received; generation=%lu.",
+      static_cast<unsigned long>(trajectory_generation_));
+
+    handle_commander_trajectory_for_exit(*msg);
+    return;
   }
 
   if (trajectory_points_valid() && robot_joints_available()) {
@@ -589,6 +619,16 @@ void ControlDecision::decision_timer_callback()
   // Once a trajectory-change protocol starts, it owns the command sequence.
   // The ordinary decision hierarchy must not overwrite it.
   if (protocol_active_) {
+    // WAITING_MOVEIT_PLAN is intentionally terminal for the normal decision
+    // hierarchy. The robot remains blocked and only trajectory_callback() can
+    // advance the protocol when a genuinely new MoveIt trajectory arrives.
+    if (protocol_stage_ == ProtocolStage::WAITING_MOVEIT_PLAN) {
+      if (socket_ready_ && !command_in_flight_) {
+        dispatch_next_command();
+      }
+      return;
+    }
+
     if (protocol_stage_ == ProtocolStage::SAFE_WAIT && zone5_recovered()) {
       start_recovery_protocol();
     }
@@ -1060,9 +1100,6 @@ void ControlDecision::publish_speed_if_required(
   // exceeded.
   command_pub_->publish(msg);
   last_commanded_speed_percent_ = desired_speed_percent;
-  // A directly published VelMax is the first operational command and must
-  // release the startup gate that defers safety pulses.
-  first_command_sent_ = true;
 
   RCLCPP_INFO(
     get_logger(),
@@ -1460,7 +1497,7 @@ ControlDecision::DecisionPlan ControlDecision::make_fail_safe_plan(
 
 bool ControlDecision::safety_exit_condition() const
 {
-  if (protocol_active_ || !trajectory_available() || !trajectory_requires_motion()) {
+  if (protocol_active_) {
     return false;
   }
 
@@ -1477,8 +1514,9 @@ bool ControlDecision::safety_exit_condition() const
   const Zone zone = determine_zone(distance);
 
   // These are the same conditions that previously generated SAFE_STOP. They
-  // now enter the explicit trajectory-exit protocol when a nominal trajectory
-  // is actually in progress.
+  // now enter the explicit trajectory-exit protocol. The protocol itself is
+  // responsible for waiting for the corresponding MoveIt trajectory; it must
+  // not depend on an already-available trajectory to start the block.
   return (
     (zone == Zone::Z3 && operator_is_available()) ||
     ((zone == Zone::Z4 || zone == Zone::Z5) && collision_is_critical()));
@@ -1514,6 +1552,8 @@ void ControlDecision::start_exit_protocol()
   tcp_request_pending_ = false;
   tcp_salida_valid_ = false;
   commander_safe_posture_requested_ = false;
+  moveit_plan_waiting_ = false;
+  moveit_request_generation_ = trajectory_generation_;
 
   // The protocol owns the pending command sequence. The command already in
   // flight, if any, cannot be physically cancelled by the socket parser, but
@@ -1647,7 +1687,6 @@ void ControlDecision::publish_safe_posture_name_from_tcp()
   }
 
   commander_safe_posture_requested_ = true;
-  protocol_stage_ = ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY;
 
   name_command_pub_->publish(msg);
 
@@ -1655,13 +1694,36 @@ void ControlDecision::publish_safe_posture_name_from_tcp()
     get_logger(),
     "EXIT PROTOCOL: updated TCP Y=%.3f -> Commander posture '%s' published on %s",
     y, msg.data.c_str(), name_command_topic_.c_str());
+
+  // The name command triggers MoveIt planning. From this point onward the
+  // safety protocol waits explicitly for a NEW trajectory. The previously
+  // cached trajectory is never accepted as the safe posture response.
+  wait_for_moveit_plan();
+}
+
+void ControlDecision::wait_for_moveit_plan()
+{
+  if (!protocol_active_) {
+    return;
+  }
+
+  moveit_plan_waiting_ = true;
+  moveit_request_generation_ = trajectory_generation_;
+  protocol_stage_ = ProtocolStage::WAITING_MOVEIT_PLAN;
+
+  RCLCPP_WARN(
+    get_logger(),
+    "WAITING_MOVEIT_PLAN: waiting for a new MoveIt trajectory. "
+    "The robot remains blocked; generation at request=%lu.",
+    static_cast<unsigned long>(moveit_request_generation_));
 }
 
 void ControlDecision::handle_commander_trajectory_for_exit(
   const moveit_msgs::msg::RobotTrajectory & trajectory)
 {
   if (!protocol_active_ ||
-      protocol_stage_ != ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY)
+      (protocol_stage_ != ProtocolStage::EXIT_WAIT_COMMANDER_TRAJECTORY &&
+       protocol_stage_ != ProtocolStage::WAITING_MOVEIT_PLAN))
   {
     return;
   }
@@ -1710,6 +1772,7 @@ void ControlDecision::handle_commander_trajectory_for_exit(
       joints_deg,
       "EXIT PROTOCOL: Commander safe posture converted from radians to degrees for JoinConf"));
 
+  moveit_plan_waiting_ = false;
   protocol_stage_ = ProtocolStage::SAFE_WAIT;
 
   RCLCPP_INFO(
@@ -2188,6 +2251,7 @@ void ControlDecision::dispatch_next_command()
         protocol_stage_ = ProtocolStage::NONE;
         tcp_request_pending_ = false;
         commander_safe_posture_requested_ = false;
+        moveit_plan_waiting_ = false;
         RCLCPP_INFO(
           get_logger(),
           "RECOVERY PROTOCOL completed: Sock_Reinicio sent; nominal operation may resume.");

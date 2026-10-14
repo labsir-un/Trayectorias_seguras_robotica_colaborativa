@@ -72,6 +72,7 @@ private:
   enum class ProtocolStage
   {
     NONE,
+    WAITING_MOVEIT_PLAN,
     EXIT_WAIT_TCP_INITIAL,
     EXIT_WAIT_TCP_AFTER_MOVE,
     EXIT_WAIT_COMMANDER_TRAJECTORY,
@@ -140,6 +141,7 @@ private:
   void continue_recovery_protocol_from_tcp();
   void handle_commander_trajectory_for_exit(
     const moveit_msgs::msg::RobotTrajectory & trajectory);
+  void wait_for_moveit_plan();
   void publish_safe_posture_name_from_tcp();
   void enqueue_protocol_command(const DecisionResult & command);
   DecisionResult make_set_offsets_value(
@@ -515,6 +517,12 @@ private:
   rclcpp::Time tcp_request_time_;
 
   colab_supervision_interfaces::msg::PoseCuaCommand tcp_salida_{};
+
+  // Explicit state used while a safety-related MoveIt plan is being generated.
+  // The robot remains blocked until a trajectory newer than the one present
+  // when planning was requested is received.
+  bool moveit_plan_waiting_{false};
+  std::uint64_t moveit_request_generation_{0};
 
   // Fixed offsets defined by the trajectory-change protocol.
   static constexpr double kTcpZThreshold = 0.402;

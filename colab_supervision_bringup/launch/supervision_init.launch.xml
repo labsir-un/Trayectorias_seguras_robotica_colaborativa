@@ -63,19 +63,6 @@
         />
     </include>
 
-    <!-- ============================================================ -->
-    <!-- Socket                                                       -->
-    <!-- ============================================================ -->
-    
-    <include
-        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml">
-
-        <arg 
-            name="server_ip" 
-            value="$(var server_ip)"
-        />
-    </include>
-
 
     <!-- ============================================================ -->
     <!-- ROBOT OPERATOR INTERACTION                                  -->
@@ -120,5 +107,18 @@
         <include file="$(find-pkg-share colab_supervision_bringup)/launch/metrics.launch.xml"/>
 
     </group>
+
+        <!-- ============================================================ -->
+    <!-- Socket                                                       -->
+    <!-- ============================================================ -->
+    
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml">
+
+        <arg 
+            name="server_ip" 
+            value="$(var server_ip)"
+        />
+    </include>
 
 </launch>
