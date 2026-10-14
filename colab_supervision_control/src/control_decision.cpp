@@ -68,7 +68,7 @@ ControlDecision::ControlDecision()
 
   max_input_age_sec_ = declare_parameter<double>(
     "max_input_age_sec",
-    3.0);
+    5.0);
 
   max_trajectory_age_sec_ = declare_parameter<double>(
     "max_trajectory_age_sec",
@@ -572,7 +572,7 @@ void ControlDecision::tcp_quaternion_callback(
   tcp_quaternion_received_time_ = get_clock()->now();
 
   // A TCP response is consumed by the active trajectory-change protocol only
-  // after the corresponding GetPostura/Prototipo/TCPTCPCua command was sent.
+  // after the corresponding GetPostura/Prototipo/TCPCua command was sent.
   if (protocol_active_ && tcp_request_pending_) {
     tcp_request_pending_ = false;
 
@@ -1100,6 +1100,9 @@ void ControlDecision::publish_speed_if_required(
   // exceeded.
   command_pub_->publish(msg);
   last_commanded_speed_percent_ = desired_speed_percent;
+  // A directly published VelMax is the first operational command and must
+  // release the startup gate that defers safety pulses.
+  first_command_sent_ = true;
 
   RCLCPP_INFO(
     get_logger(),
@@ -1222,7 +1225,7 @@ ControlDecision::DecisionResult ControlDecision::make_get_tcp_quaternion(
     "Distancia",
     "GetPostura",
     "Prototipo",
-    "TCPTCPCua",
+    "TCPCua",
     reason};
 }
 
@@ -1586,7 +1589,7 @@ void ControlDecision::start_exit_protocol()
 
   RCLCPP_INFO(
     get_logger(),
-    "EXIT PROTOCOL queued: Sock_Bloquear -> GuardarPSalida -> Interes -> TCPTCPCua");
+    "EXIT PROTOCOL queued: Sock_Bloquear -> GuardarPSalida -> Interes -> TCPCua");
 }
 
 void ControlDecision::continue_exit_protocol_from_tcp()
@@ -2263,7 +2266,7 @@ void ControlDecision::dispatch_next_command()
     msg.command == "Distancia" &&
     msg.object == "GetPostura" &&
     msg.variable == "Prototipo" &&
-    msg.value == "TCPTCPCua" &&
+    msg.value == "TCPCua" &&
     protocol_active_)
   {
     tcp_request_pending_ = true;
