@@ -328,10 +328,8 @@ MODULE Interrupciones
             \Icon:=iconWarning 
             \Result:=respuesta_parada;
         StartMove;
-        IF Reiniciar = TRUE THEN
-            MoveJ Target_Home_10,Vel_Vacio_Rap,Z_Vacio_Rap,Prototipo_JSDaleman\WObj:=wobj0;
-            MoveJ Target_Espera,Vel_Vacio_Rap,Z_Paro,Prototipo_JSDaleman\WObj:=wobj0;
-        ENDIF
+        MoveJ Target_Home_10,Vel_Vacio_Rap,Z_Vacio_Rap,Prototipo_JSDaleman\WObj:=wobj0;
+        MoveJ Target_Espera,Vel_Vacio_Rap,Z_Paro,Prototipo_JSDaleman\WObj:=wobj0;
         Test_Reinicio:=FALSE;
         SetDO DO_03,1;
         RestoPath;

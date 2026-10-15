@@ -138,7 +138,7 @@ MODULE ComandosSocket
                             angley:=EulerZYX(\Y, p_actual.rot);
                             anglez:=EulerZYX(\Z, p_actual.rot);
                                                    
-                            string_a_enviar := "Pose: {Trans: {" 
+                            string_a_enviar := "{Trans: {" 
                                                    + ValToStr(p_actual.trans.x) + "," 
                                                    + ValToStr(p_actual.trans.y) + "," 
                                                    + ValToStr(p_actual.trans.z) 
@@ -146,22 +146,23 @@ MODULE ComandosSocket
                                                    + ValToStr(anglex) + "," 
                                                    + ValToStr(angley) + ","
                                                    + ValToStr(anglez) + "}}";
-                            Estado_Socket:="TCPeul actual: ";
+                            Estado_Socket:="TCPeul: ";
                             EnviarDatos Estado_Socket + string_a_enviar;
                             RETURN;
                         CASE "TCPCua":
                             p_actual := CRobT(\Tool:=Prototipo_JSDaleman \WObj:=wobj0);
                                                    
-                            string_a_enviar := "Pose: {Trans: {" 
-                                                   + ValToStr(p_actual.trans.x) + "," 
-                                                   + ValToStr(p_actual.trans.y) + "," 
-                                                   + ValToStr(p_actual.trans.z)
+                            string_a_enviar := "{Trans: {" 
+                                                   + NumToStr(p_actual.trans.x, 3) + "," 
+                                                   + NumToStr(p_actual.trans.y, 3) + "," 
+                                                   + NumToStr(p_actual.trans.z, 3)
                                                    + "}, Rot: {"
-                                                   + ValToStr(p_actual.rot.q1) + "," 
-                                                   + ValToStr(p_actual.rot.q2) + ","
-                                                   + ValToStr(p_actual.rot.q3) + ","
-                                                   + ValToStr(p_actual.rot.q4) + "}}";
-                            Estado_Socket:="TCPcua actual: ";
+                                                   + NumToStr(p_actual.rot.q1, 3) + "," 
+                                                   + NumToStr(p_actual.rot.q2, 3) + ","
+                                                   + NumToStr(p_actual.rot.q3, 3) + ","
+                                                   + NumToStr(p_actual.rot.q4, 3) + "}}";
+                            !Estado_Socket:="TCPcua: ";
+                            Estado_Socket:="TCPcua: ";
                             EnviarDatos Estado_Socket + string_a_enviar;
                             RETURN;
                         DEFAULT:
@@ -206,7 +207,6 @@ MODULE ComandosSocket
                     CASE "MoveTemp":
                         TEST Valor
                             CASE "MoveJoint":
-                                Estado_Socket:="llegue a aqui";
                                 StopMove;
                                 StorePath;
                                 StartMove;
@@ -505,14 +505,19 @@ MODULE ComandosSocket
                                                + ValToStr(t_rob.trans.y) + "," 
                                                + ValToStr(t_rob.trans.z) + 
                                                "}, Rot: {"
-                                               + ValToStr(t_rob.rot.q1) + "," 
-                                               + ValToStr(t_rob.rot.q2) + ","
-                                               + ValToStr(t_rob.rot.q3) + ","
-                                               + ValToStr(t_rob.rot.q4) + "}}";
+                                               + NumToStr(t_rob.rot.q1, 3) + "," 
+                                               + NumToStr(t_rob.rot.q2, 3) + ","
+                                               + NumToStr(t_rob.rot.q3, 3) + ","
+                                               + NumToStr(t_rob.rot.q4, 3) + "}}";
                      
                     CASE "joints":
                         t_joints := CJointT(\TaskName:=Variable) ;
-                        string_a_enviar := ValToStr(t_joints);
+                        string_a_enviar := NumToStr(t_joints.robax.rax_1, 4) + "," +
+                             NumToStr(t_joints.robax.rax_2, 4) + "," +
+                             NumToStr(t_joints.robax.rax_3, 4) + "," +
+                             NumToStr(t_joints.robax.rax_4, 4) + "," +
+                             NumToStr(t_joints.robax.rax_5, 4) + "," +
+                             NumToStr(t_joints.robax.rax_6, 4);
                     CASE " ":
                         Estado_Socket:="Error en el mensaje de GET" + Variable + ", tipo de dato no declarado";
                         RETURN;

@@ -78,6 +78,7 @@ MODULE InterrupcionesSocket
         StopMove;
         IF NOT Postura_segura THEN
             StorePath;
+            p_salida := CRobT(\Tool:=Prototipo_JSDaleman \WObj:=WO_PastelDef);
         ENDIF
         Sock_Bloquear:=FALSE;
         WHILE NOT Sock_Reinicio DO

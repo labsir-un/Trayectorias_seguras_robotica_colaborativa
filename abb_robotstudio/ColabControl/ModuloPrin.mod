@@ -76,7 +76,7 @@ MODULE ModuloPrin
     VAR zonedata Z_Segura:=z1;
     
     !Variables de estado del socket
-    PERS string Estado_Socket:="Aplicación en linea. Esperando comandos";
+    PERS string Estado_Socket:="Error de indices, no se ejecuto el comienzo de la trayectoria";
     PERS bool Conectar_Socket:=FALSE;
     PERS robtarget p_actual;
     PERS bool Postura_segura:=FALSE;
@@ -104,7 +104,7 @@ MODULE ModuloPrin
     VAR num cercania:=0.001;
     
     !Variables de seleccion
-    PERS string Seleccion:="LabSIR";
+    PERS string Seleccion:="25 años mecatrónica";
     
     !Variables de control de acciones
     PERS bool Bool_Home:=FALSE;
@@ -126,8 +126,8 @@ MODULE ModuloPrin
     
     !Testigos de funcionamiento
     PERS bool Test_Transi:=FALSE;
-    PERS bool Test_LabSIR:=TRUE;
-    PERS bool Test_25:=FALSE;
+    PERS bool Test_LabSIR:=FALSE;
+    PERS bool Test_25:=TRUE;
     PERS bool Test_165:=FALSE;
     PERS bool Test_Reinicio:=FALSE;
 
@@ -389,7 +389,7 @@ MODULE ModuloPrin
         ENDIF
     ENDPROC
     PROC ActualizarPuntosInteres()
-        VAR robtarget path_aux;
+        VAR num dim_path_aux;
         
         VAR num path_estado;
         
@@ -407,13 +407,25 @@ MODULE ModuloPrin
         ENDIF
         TEST path_estado
             CASE 1:
-                GetDataVal path_contacto_actual, path_aux;
+                !GetDataVal path_contacto_actual, path_aux;
+                TEST path_contacto_actual
+                    CASE "p_contacto_25":
+                        dim_path_aux:=279;
+                    CASE "p_contacto_165":
+                        dim_path_aux:=319;
+                    CASE "p_contacto_labSIR":
+                        dim_path_aux:=256;
+                    CASE "p_contacto_labSIR_FrenteL":
+                        dim_path_aux:=394;
+                    CASE "p_contacto_labSIR_FrenteR":
+                        dim_path_aux:=448;
+                ENDTEST
                 IF (index_vacio_origen = 0) AND (index_vacio_destino = 0) THEN
                     p_OrigenActual:=CRobT(\Tool:=Prototipo_JSDaleman \WObj:=WO_PastelDef);
                 ELSE
                     p_OrigenActual:=Punto_Array(path_vacio_actual, index_vacio_origen);                  
                 ENDIF
-                IF Dim(path_aux,1) < index_contacto_destino THEN
+                IF dim_path_aux < index_contacto_destino THEN
                     p_OrigenActual:=Punto_Array(path_vacio_actual, index_vacio_destino);
                     p_DestinoActual:=CRobT(\Tool:=Prototipo_JSDaleman \WObj:=WO_PastelDef);
                 ELSE 
