@@ -68,7 +68,7 @@ ControlDecision::ControlDecision()
 
   max_input_age_sec_ = declare_parameter<double>(
     "max_input_age_sec",
-    5.0);
+    3.0);
 
   max_trajectory_age_sec_ = declare_parameter<double>(
     "max_trajectory_age_sec",
@@ -217,6 +217,8 @@ ControlDecision::ControlDecision()
     "command_queue_capacity", 20);
   command_queue_ttl_sec_ = declare_parameter<double>(
     "command_queue_ttl_sec", 60.0);
+  motion_command_delay_sec_ = declare_parameter<double>(
+    "motion_command_delay_sec", 10.0);
 
   safe_posture_joint_point_ = declare_parameter<std::string>(
     "safe_posture_joint_point",
@@ -253,6 +255,9 @@ ControlDecision::ControlDecision()
   }
   if (command_queue_ttl_sec_ <= 0.0 || command_queue_ttl_sec_ > 60.0) {
     throw std::invalid_argument("command_queue_ttl_sec must be in (0, 60] seconds");
+  }
+  if (!std::isfinite(motion_command_delay_sec_) || motion_command_delay_sec_ < 0.0) {
+    throw std::invalid_argument("motion_command_delay_sec must be finite and non-negative");
   }
   if (commander_pose_mode_ != "quaternion" && commander_pose_mode_ != "euler" &&
       commander_pose_mode_ != "joints") {
@@ -572,7 +577,7 @@ void ControlDecision::tcp_quaternion_callback(
   tcp_quaternion_received_time_ = get_clock()->now();
 
   // A TCP response is consumed by the active trajectory-change protocol only
-  // after the corresponding GetPostura/Prototipo/TCPCua command was sent.
+  // after the corresponding GetPostura/Prototipo/TCPTCPCua command was sent.
   if (protocol_active_ && tcp_request_pending_) {
     tcp_request_pending_ = false;
 
@@ -1074,6 +1079,18 @@ void ControlDecision::publish_speed_if_required(
   int desired_speed_percent,
   const std::string & reason)
 {
+  // Once the trajectory-exit/recovery protocol starts, VelMax must be frozen.
+  // Speed commands are intentionally not queued, so this guard prevents the
+  // periodic speed timer from transmitting supervisory commands while the IRC5
+  // is processing the protocol sequence.
+  if (protocol_active_) {
+    RCLCPP_DEBUG(
+      get_logger(),
+      "VelMax suppressed while trajectory protocol is active (stage=%d).",
+      static_cast<int>(protocol_stage_));
+    return;
+  }
+
   desired_speed_percent = std::clamp(
     desired_speed_percent,
     0,
@@ -1100,9 +1117,6 @@ void ControlDecision::publish_speed_if_required(
   // exceeded.
   command_pub_->publish(msg);
   last_commanded_speed_percent_ = desired_speed_percent;
-  // A directly published VelMax is the first operational command and must
-  // release the startup gate that defers safety pulses.
-  first_command_sent_ = true;
 
   RCLCPP_INFO(
     get_logger(),
@@ -1120,6 +1134,17 @@ void ControlDecision::publish_speed_if_required(
 
 void ControlDecision::speed_timer_callback()
 {
+  // Speed updates are suspended for the complete trajectory protocol.
+  // This is independent of command_queue_: VelMax is normally published
+  // directly, so it must be explicitly blocked here.
+  if (protocol_active_) {
+    RCLCPP_DEBUG(
+      get_logger(),
+      "VelMax timer skipped: trajectory protocol is active (stage=%d).",
+      static_cast<int>(protocol_stage_));
+    return;
+  }
+
   // This timer intentionally does NOT use is_supervision_fresh() or
   // is_operator_state_fresh(). The speed calculation must continue every
   // 4 seconds using the newest values available in memory. If no new message
@@ -1225,7 +1250,7 @@ ControlDecision::DecisionResult ControlDecision::make_get_tcp_quaternion(
     "Distancia",
     "GetPostura",
     "Prototipo",
-    "TCPCua",
+    "TCPTCPCua",
     reason};
 }
 
@@ -1564,6 +1589,7 @@ void ControlDecision::start_exit_protocol()
   // is sent.
   command_queue_.clear();
   plan_initialized_ = false;
+  command_not_before_.reset();
 
   RCLCPP_WARN(
     get_logger(),
@@ -1589,7 +1615,7 @@ void ControlDecision::start_exit_protocol()
 
   RCLCPP_INFO(
     get_logger(),
-    "EXIT PROTOCOL queued: Sock_Bloquear -> GuardarPSalida -> Interes -> TCPCua");
+    "EXIT PROTOCOL queued: Sock_Bloquear -> GuardarPSalida -> Interes -> TCPTCPCua");
 }
 
 void ControlDecision::continue_exit_protocol_from_tcp()
@@ -2148,6 +2174,13 @@ void ControlDecision::enqueue_command(const DecisionResult & command, bool prior
 
 void ControlDecision::purge_expired_commands()
 {
+  // Protocol command queues contain intentional 10-second pauses after motion
+  // commands. Do not let the generic TTL discard a still-valid protocol
+  // sequence while the IRC5 is deliberately being given time to drain.
+  if (protocol_active_) {
+    return;
+  }
+
   const auto now = std::chrono::steady_clock::now();
   const auto ttl = std::chrono::duration<double>(command_queue_ttl_sec_);
   std::size_t removed = 0;
@@ -2185,6 +2218,19 @@ void ControlDecision::dispatch_next_command()
 {
   if (!socket_ready_ || command_in_flight_) {
     return;
+  }
+
+  // A movement command must be followed by a deliberate pause so the IRC5
+  // parser/controller can consume and execute it before the next command is
+  // transmitted. The normal Ready=true handshake alone is not sufficient for
+  // this protocol because the IRC5 may still have internal motion commands
+  // pending.
+  if (command_not_before_.has_value()) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now < *command_not_before_) {
+      return;
+    }
+    command_not_before_.reset();
   }
 
   purge_expired_commands();
@@ -2232,6 +2278,33 @@ void ControlDecision::dispatch_next_command()
   command_pub_->publish(msg);
   first_command_sent_ = true;
 
+  // These are the commands that actually initiate/command robot motion. After
+  // any of them, hold transmission of the following queued command for the
+  // configured delay. SetOffsets, TCP queries, Interes, etc. do not start a
+  // motion and therefore do not introduce this delay.
+  const bool is_motion_command =
+    (msg.command == "Distancia" &&
+     msg.object == "CambiarTrayectoria" &&
+     msg.variable == "MoveTemp") ||
+    (msg.command == "Distancia" &&
+     msg.object == "Postura_segura" &&
+     (msg.variable == "robtargetL" ||
+      msg.variable == "robtargetJ" ||
+      msg.variable == "JoinConf"));
+
+  if (is_motion_command && motion_command_delay_sec_ > 0.0) {
+    command_not_before_ =
+      std::chrono::steady_clock::now() +
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(motion_command_delay_sec_));
+
+    RCLCPP_INFO(
+      get_logger(),
+      "IRC5 motion delay active: %.1f s after %s/%s/%s/%s before next queued command.",
+      motion_command_delay_sec_, msg.command.c_str(), msg.object.c_str(),
+      msg.variable.c_str(), msg.value.c_str());
+  }
+
 
   if (msg.command == "Variable" && msg.object == "SET" && msg.value == "TRUE") {
     if (msg.variable == "Sock_Pausa") {
@@ -2266,7 +2339,7 @@ void ControlDecision::dispatch_next_command()
     msg.command == "Distancia" &&
     msg.object == "GetPostura" &&
     msg.variable == "Prototipo" &&
-    msg.value == "TCPCua" &&
+    msg.value == "TCPTCPCua" &&
     protocol_active_)
   {
     tcp_request_pending_ = true;

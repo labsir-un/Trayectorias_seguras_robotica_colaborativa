@@ -1,0 +1,134 @@
+<launch>
+    
+    <arg
+        name="server_ip"
+        default="172.25.64.1"
+        description="IP del servidor TCP en Windows"
+    />
+
+    <arg
+        name="launch_rviz"
+        default="false"
+        description="Lanzar RViz2 de solo el robot"/>
+
+    <arg
+        name="puerto_camara_rgb"
+        default="/dev/video0"
+        description="Puerto de conexión USB de la cámara RGB"/>
+
+    <arg
+        name="interaction_topic"
+        default="/robot_operator_interaction"
+        description="Topic consumido por control_supervisor"
+    />
+
+    <arg
+        name="robot_operator_visualizar"
+        default="false"
+        description="Activa todas las visualizaciones de robot_operator_interaction"
+    />
+
+    <arg 
+        name="perception_operator_topic" 
+        default="/state_operator" 
+        description="Topic OperatorPerception de entrada"
+    />
+
+    <arg
+        name="activar_metricas"
+        default="false"
+        description="Activa el lanzamiento de métricas de supervisión"
+    />
+    
+    <!-- ============================================================ -->
+    <!-- Scene with cameras                                           -->
+    <!-- ============================================================ -->
+    
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/scene_cams.launch.xml">
+
+        <arg 
+            name="launch_rviz" 
+            value="$(var launch_rviz)"
+        />
+
+        <arg 
+            name="puerto_camara_rgb" 
+            value="$(var puerto_camara_rgb)"
+        />
+
+        <arg
+            name="rviz_custom_config"
+            value="false"
+        />
+    </include>
+
+
+    <!-- ============================================================ -->
+    <!-- ROBOT OPERATOR INTERACTION                                  -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/robot_operator_interaction.launch.xml">
+
+        <arg
+            name="visualizar"
+            value="$(var robot_operator_visualizar)"
+        />
+
+    </include>
+
+
+    <!-- ============================================================ -->
+    <!-- CONTROL SUPERVISOR                                           -->
+    <!-- ============================================================ -->
+
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/control.launch.xml">
+
+        <arg
+            name="interaction_topic"
+            value="$(var interaction_topic)"
+        />
+
+        <arg
+            name="perception_operator_topic"
+            value="$(var perception_operator_topic)"
+        />
+
+        <arg
+            name="supervision_topic"
+            value="/control/robot_operator_state_"
+        />
+
+        <arg
+            name="operator_state_topic"
+            value="/operator/state_analisis_"
+        />
+
+    </include>
+
+    <!-- ============================================================ -->
+    <!-- METRICS                                                     -->
+    <!-- ============================================================ -->
+
+    <group if="$(var activar_metricas)">
+
+        <include file="$(find-pkg-share colab_supervision_bringup)/launch/metrics.launch.xml"/>
+
+    </group>
+
+        <!-- ============================================================ -->
+    <!-- Socket                                                       -->
+    <!-- ============================================================ -->
+    
+    <include
+        file="$(find-pkg-share colab_supervision_bringup)/launch/socket_pcsdk.launch.xml">
+
+        <arg 
+            name="server_ip" 
+            value="$(var server_ip)"
+        />
+    </include>
+
+</launch>

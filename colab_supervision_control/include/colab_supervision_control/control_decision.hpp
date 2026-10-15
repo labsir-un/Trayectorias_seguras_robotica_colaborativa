@@ -382,6 +382,9 @@ private:
   // Socket queue configuration. A command is sent only after Ready=true.
   int command_queue_capacity_;
   double command_queue_ttl_sec_;
+  // Minimum time the IRC5 parser is given to process each movement command
+  // before the next queued command is transmitted.
+  double motion_command_delay_sec_;
 
   // Optional safe posture commands reserved for later integration
   std::string safe_posture_joint_point_;
@@ -499,6 +502,7 @@ private:
   std::deque<QueuedCommand> command_queue_;
   bool socket_ready_{true};
   bool command_in_flight_{false};
+  std::optional<std::chrono::steady_clock::time_point> command_not_before_;
 
   // A safety pulse (pause/block/stop) is never allowed to be the first
   // command emitted after node startup. A non-safety command, such as the
